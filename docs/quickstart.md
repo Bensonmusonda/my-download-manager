@@ -79,7 +79,7 @@ Format of `urls.txt`:
 # Supports URL, URL | filename, or URL | filename | referer
 https://example.com/file1.zip
 https://example.com/file2.zip | custom_name.zip
-https://kwik.cx/f/stream.mp4 | episode1.mp4 | https://animepahe.pw/
+https://cdn.example.org/stream.mp4 | video1.mp4 | https://portal.example.org/
 ```
 Pre-existing completed files are automatically skipped, and if any link expires (HTTP 403), it is paused safely while the remaining queue continues to finish!
 

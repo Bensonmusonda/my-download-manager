@@ -4,7 +4,7 @@ Smart Download Manager — downloader.py
 Core download engine using curl_cffi for browser-grade TLS fingerprinting.
 Features:
   • Automatic byte-range resumption (HTTP Range header)
-  • Anti-hotlink Referer auto-detection (for CDNs like uwucdn, kwik, animepahe)
+  • Anti-hotlink Referer auto-detection for media CDNs and protected origins
   • Multi-connection speed boosting (parallel chunk downloading for large files)
   • Expired signed URL detection (HTTP 403, 410, 401) with clean pause & state save
   • Streaming progress bar via Rich with aggregated multi-thread transfer speed
@@ -91,7 +91,7 @@ def filename_from_url(url: str) -> str:
     'download' when the path is empty.
     """
     parsed = urlparse(url)
-    # Check if 'file' query parameter is present (common in video CDNs like uwucdn)
+    # Check if 'file' query parameter is present (common in video streaming CDNs)
     if "file=" in parsed.query:
         for part in parsed.query.split("&"):
             if part.startswith("file="):

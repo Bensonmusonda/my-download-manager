@@ -5,7 +5,7 @@ Modern desktop GUI built with CustomTkinter.
 Features:
   • Clean dark-mode UI with native Windows controls
   • Live Chrome Extension Bridge (receives cf_clearance cookies & auto-catches downloads)
-  • Anti-hotlink Referer tracking and auto-inference (e.g. for AnimePahe, Kwik, uwucdn)
+  • Anti-hotlink Referer tracking and auto-inference
   • Single-click download & batch file ingestion (urls.txt)
   • Background Download Queue Manager:
       - Sequential & concurrent task processing (e.g. 2 downloads active at once)
@@ -216,7 +216,7 @@ class SmartDownloaderApp(ctk.CTk):
         # Referer Input (Anti-Hotlink Header)
         self.referer_label = ctk.CTkLabel(
             self.config_card,
-            text="Source Page / Referer (Auto-detected for AnimePahe, Kwik, etc.)",
+            text="Source Page / Referer (Auto-detected)",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color="#9ca3af",
         )
@@ -224,7 +224,7 @@ class SmartDownloaderApp(ctk.CTk):
 
         self.referer_entry = ctk.CTkEntry(
             self.config_card,
-            placeholder_text="e.g. https://kwik.cx/ or source webpage URL (prevents 403 hotlink block)",
+            placeholder_text="Source webpage URL (optional; prevents 403 hotlink protection block)",
             height=30,
         )
         self.referer_entry.grid(row=3, column=0, columnspan=3, sticky="ew", padx=16, pady=(0, 6))

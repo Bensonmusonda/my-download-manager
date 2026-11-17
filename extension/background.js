@@ -37,7 +37,7 @@ async function getCookiesForUrl(urlStr, refererStr = "") {
       }
     } catch (e) {}
 
-    // 3. If referer URL is provided (e.g. kwik.cx for uwucdn.top), also harvest referer cookies!
+    // 3. If referer URL is provided, also harvest referer cookies!
     if (refererStr && refererStr.startsWith("http")) {
       try {
         const refCookies = await chrome.cookies.getAll({ url: refererStr });
