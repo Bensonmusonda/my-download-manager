@@ -57,7 +57,31 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-exe = EXE(
+# 1. Standalone single-file executable (self-contained, no _internal folder needed)
+exe_onefile = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='SmartDownloadManager-Standalone',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon='app_icon.ico',
+)
+
+# 2. Directory-based executable (for Inno Setup installer)
+exe_onedir = EXE(
     pyz,
     a.scripts,
     [],
@@ -77,7 +101,7 @@ exe = EXE(
 )
 
 coll = COLLECT(
-    exe,
+    exe_onedir,
     a.binaries,
     a.zipfiles,
     a.datas,

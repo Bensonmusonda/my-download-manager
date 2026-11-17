@@ -32,10 +32,10 @@ jobs:
           python -c "from PIL import Image; img = Image.open('extension/icons/icon128.png'); img.save('app_icon.ico', format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128)])"
           python -m PyInstaller --noconfirm SmartDownloadManager.spec
 
-      - name: Package Portable ZIP
+      - name: Package Portable ZIP & Standalone Executable
         run: |
-          python -c "import shutil, os; os.makedirs('dist_release', exist_ok=True); shutil.make_archive('dist_release/SmartDownloadManager-${{ github.ref_name }}-Windows-Portable', 'zip', 'dist/SmartDownloadManager')"
-          copy dist\SmartDownloadManager\SmartDownloadManager.exe dist_release\SmartDownloadManager.exe
+          python -c "import shutil, os; os.makedirs('dist_release', exist_ok=True); shutil.copy2('dist/SmartDownloadManager-Standalone.exe', 'dist_release/SmartDownloadManager.exe')"
+          python -c "import os, zipfile; os.makedirs('dist_release', exist_ok=True); zf = zipfile.ZipFile('dist_release/SmartDownloadManager-${{ github.ref_name }}-Windows-Portable.zip', 'w', zipfile.ZIP_DEFLATED); zf.write('dist/SmartDownloadManager-Standalone.exe', 'SmartDownloadManager.exe'); zf.write('README.md', 'README.md'); [zf.write(os.path.join(root, f), os.path.relpath(os.path.join(root, f), '.')) for root, dirs, files in os.walk('extension') for f in files]; zf.close()"
 
       - name: Install Inno Setup
         run: |
