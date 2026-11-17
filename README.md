@@ -54,7 +54,7 @@ smart_downloader/
 
 1. Clone or download the repository to your local system:
    ```powershell
-   git clone <repository_url>
+   git clone https://github.com/Bensonmusonda/my-download-manager
    cd my_smart_downloader
    ```
 
