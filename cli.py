@@ -44,6 +44,11 @@ from queue_manager import (
     QueueManager,
     parse_urls_file,
 )
+from torrent_engine import (
+    download_torrent,
+    is_torrent_source,
+    parse_magnet_display_name,
+)
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -395,18 +400,22 @@ def run_batch_cli(
                     task_map[it.id] = tid
                 else:
                     tid = task_map[it.id]
+                    st_msg = it.status_msg
+                    if it.is_torrent_task and (it.peers > 0 or it.seeds > 0):
+                        st_msg = f"{it.formatted_speed} · {it.peers}P/{it.seeds}S"
                     progress.update(
                         tid,
                         total=it.total_bytes,
                         completed=it.downloaded_bytes,
-                        status=it.status_msg,
+                        status=st_msg,
                     )
 
         def on_item_complete(it: QueueItem):
             if it.id in task_map:
                 tid = task_map[it.id]
                 if it.status == QueueItemStatus.COMPLETED:
-                    progress.update(tid, completed=it.total_bytes or it.downloaded_bytes, status="[green]Done[/]")
+                    cmpl_label = "[green]Done (Torrent)[/]" if it.is_torrent_task else "[green]Done[/]"
+                    progress.update(tid, completed=it.total_bytes or it.downloaded_bytes, status=cmpl_label)
                 elif it.status == QueueItemStatus.SKIPPED:
                     progress.update(tid, status="[cyan]Skipped[/]")
                 elif it.status == QueueItemStatus.EXPIRED:
@@ -488,6 +497,17 @@ def run_cli(
             return
 
         if initial_url:
+            if is_torrent_source(initial_url):
+                console.print(f"\n[cyan]🧲 BitTorrent source detected:[/] [bold]{initial_url[:64]}[/]")
+                console.print(f"[cyan]   To folder :[/]  {dest_dir}\n")
+                res = download_torrent(
+                    source=initial_url,
+                    dest_dir=dest_dir,
+                    show_terminal_progress=True,
+                )
+                _print_result(res)
+                return
+
             console.print(f"[cyan]🔍 Scanning browsers for session cookies …[/]")
             session = get_browser_session(initial_url)
             _print_session_info(session, initial_url)
@@ -512,7 +532,7 @@ def run_cli(
 
         while True:
             console.print("\n[bold]Select an option:[/]")
-            console.print("  [bold green]1.[/] Download a single URL")
+            console.print("  [bold green]1.[/] Download a single URL / Magnet link / .torrent")
             console.print("  [bold cyan]2.[/] Batch download from file (urls.txt)")
             console.print("  [bold magenta]3.[/] Update URL for existing file (Resume unfinished)")
             console.print("  [bold red]4.[/] Exit (or q)")
@@ -556,13 +576,25 @@ def run_cli(
                 )
                 continue
 
-            console.print("\n[bold]Enter download URL[/] (or press Enter to go back):")
+            console.print("\n[bold]Enter download URL, magnet URI, or .torrent path[/] (or press Enter to go back):")
             try:
                 url = input("  ➤  ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
 
             if not url:
+                continue
+
+            if is_torrent_source(url):
+                console.print(f"\n[cyan]🧲 BitTorrent source detected:[/] [bold]{url[:64]}[/]")
+                console.print(f"[cyan]   Destination:[/] {dest_dir}\n")
+                result = download_torrent(
+                    source=url,
+                    dest_dir=dest_dir,
+                    show_terminal_progress=True,
+                )
+                _print_result(result)
+                console.print("─" * 56)
                 continue
 
             console.print(f"\n[cyan]🔍 Scanning browsers for session cookies …[/]")

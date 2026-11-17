@@ -18,9 +18,16 @@ htmlcov/
 downloads/
 test_downloads/
 test_queue_downloads/
+test_torrent_downloads/
 *.part*
 *.meta.json
+*.fastresume
 urls.txt
+
+# Build and release artifacts
+build/
+dist/
+dist_release/
 
 # Internal project planning and handoff documents
 HANDOFF.md

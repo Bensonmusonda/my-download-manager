@@ -46,6 +46,12 @@ from downloader import (
     probe_server,
 )
 from state import DownloadManifest
+from torrent_engine import (
+    download_torrent,
+    is_torrent_source,
+    parse_magnet_display_name,
+    parse_magnet_info_hash,
+)
 
 log = logging.getLogger(__name__)
 
@@ -86,12 +92,28 @@ class QueueItem:
     created_at: float = field(default_factory=time.time)
     completed_at: Optional[float] = None
     is_skipped: bool = False
+    peers: int = 0
+    seeds: int = 0
+
+    @property
+    def is_torrent_task(self) -> bool:
+        """Check if this queue item is a BitTorrent download."""
+        u = self.url.strip()
+        return is_torrent_source(u) or (self.filename is not None and self.filename.endswith(".torrent"))
 
     @property
     def display_name(self) -> str:
         """Friendly name for display."""
         if self.filename:
             return self.filename
+        if self.url.startswith("magnet:"):
+            dn = parse_magnet_display_name(self.url)
+            if dn:
+                return dn
+            h = parse_magnet_info_hash(self.url)
+            if h:
+                return f"magnet-{h[:10]}"
+            return "magnet-download"
         return filename_from_url(self.url)
 
     @property
@@ -251,8 +273,12 @@ def parse_urls_file(
 
             parts = [p.strip().strip('"\'') for p in line.split("|")]
             url = parts[0]
-            if not (url.startswith("http://") or url.startswith("https://")):
-                log.warning(f"Line {line_num}: Skipping invalid URL '{url}'")
+            if not (
+                url.startswith("http://")
+                or url.startswith("https://")
+                or is_torrent_source(url)
+            ):
+                log.warning(f"Line {line_num}: Skipping invalid URL or torrent source '{url}'")
                 continue
 
             filename: Optional[str] = None
@@ -526,9 +552,66 @@ class QueueManager:
     def _download_worker(self, item: QueueItem) -> None:
         """Worker thread executing download for a single QueueItem."""
         try:
-            filename = item.filename or filename_from_url(item.url)
             out_dir = Path(item.dest_dir).resolve()
             out_dir.mkdir(parents=True, exist_ok=True)
+
+            # ── Protocol Routing: BitTorrent vs HTTP ───────────────────
+            if is_torrent_source(item.url):
+                def torrent_progress_cb(
+                    downloaded: int,
+                    total: Optional[int],
+                    speed: float,
+                    msg: str,
+                    peers: int = 0,
+                    seeds: int = 0,
+                ):
+                    item.downloaded_bytes = downloaded
+                    if total:
+                        item.total_bytes = total
+                    item.speed = speed
+                    item.status_msg = msg
+                    item.peers = peers
+                    item.seeds = seeds
+                    self._notify_item_updated(item)
+
+                res = download_torrent(
+                    source=item.url,
+                    dest_dir=str(out_dir),
+                    filename=item.filename,
+                    progress_callback=torrent_progress_cb,
+                    cancel_event=item.cancel_event,
+                )
+
+                item.result = res
+                item.downloaded_bytes = res.bytes_downloaded
+                if res.total_size:
+                    item.total_bytes = res.total_size
+                if res.path:
+                    item.target_path = res.path
+                    if not item.filename and res.path.name:
+                        item.filename = res.path.name
+                item.completed_at = time.time()
+
+                if res.status == DownloadStatus.COMPLETED:
+                    item.status = QueueItemStatus.COMPLETED
+                    item.status_msg = "Complete"
+                    item.speed = 0.0
+                elif res.status == DownloadStatus.CANCELLED:
+                    item.status = QueueItemStatus.PAUSED
+                    item.status_msg = "Paused"
+                    item.speed = 0.0
+                else:
+                    item.status = QueueItemStatus.FAILED
+                    item.status_msg = "Failed"
+                    item.error = res.error or "Torrent download failed"
+                    item.speed = 0.0
+
+                self._notify_item_updated(item)
+                self._notify_item_completed(item)
+                return
+
+            # ── Standard HTTP(S) Workflow ─────────────────────────────
+            filename = item.filename or filename_from_url(item.url)
             target_path = out_dir / filename
             item.target_path = target_path
 

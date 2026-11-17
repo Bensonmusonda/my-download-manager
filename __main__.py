@@ -11,6 +11,16 @@ import argparse
 import logging
 import sys
 
+# On Windows, attach to parent terminal console if run from CLI (so --help and CLI mode print output)
+if sys.platform == "win32":
+    try:
+        import ctypes
+        if ctypes.windll.kernel32.AttachConsole(-1):
+            sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+            sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from cli import run_cli
 from downloader import DEFAULT_NUM_CONNECTIONS, MULTI_CHUNK_MIN_SIZE
 
@@ -28,7 +38,12 @@ def main() -> None:
     parser.add_argument(
         "-g", "--gui",
         action="store_true",
-        help="Launch the modern CustomTkinter desktop GUI window",
+        help="Launch the modern CustomTkinter desktop GUI window (default when no arguments provided)",
+    )
+    parser.add_argument(
+        "--cli",
+        action="store_true",
+        help="Launch the interactive terminal CLI menu instead of Desktop GUI",
     )
     parser.add_argument(
         "-d", "--dest",
@@ -80,19 +95,7 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    if args.gui:
-        from gui import run_gui
-        run_gui(default_dest=args.dest, initial_batch_file=args.file)
-    elif args.file:
-        from cli import run_batch_cli
-        run_batch_cli(
-            file_path=args.file,
-            dest_dir=args.dest,
-            max_concurrent=args.concurrent,
-            num_connections=args.connections,
-            min_chunk_size=args.min_chunk_size * 1024 * 1024,
-        )
-    else:
+    if args.cli:
         run_cli(
             dest_dir=args.dest,
             initial_url=args.url,
@@ -102,6 +105,29 @@ def main() -> None:
             batch_file=args.file,
             max_concurrent=args.concurrent,
         )
+    elif args.file:
+        from cli import run_batch_cli
+        run_batch_cli(
+            file_path=args.file,
+            dest_dir=args.dest,
+            max_concurrent=args.concurrent,
+            num_connections=args.connections,
+            min_chunk_size=args.min_chunk_size * 1024 * 1024,
+        )
+    elif args.url or args.update_url:
+        run_cli(
+            dest_dir=args.dest,
+            initial_url=args.url,
+            num_connections=args.connections,
+            min_chunk_size=args.min_chunk_size * 1024 * 1024,
+            update_file=args.update_url,
+            batch_file=args.file,
+            max_concurrent=args.concurrent,
+        )
+    else:
+        # Default: Launch modern Desktop GUI
+        from gui import run_gui
+        run_gui(default_dest=args.dest, initial_batch_file=args.file)
 
 
 if __name__ == "__main__":

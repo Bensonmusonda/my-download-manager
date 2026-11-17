@@ -9,3 +9,6 @@ browser-cookie3>=0.19
 
 # Modern desktop GUI
 customtkinter>=6.0.0
+
+# BitTorrent & Magnet link engine
+libtorrent>=2.1.1

@@ -15,7 +15,21 @@ The system includes a companion Manifest V3 browser extension, a concurrent back
 - **Expired Signed Link Recovery**: When temporary download tokens expire mid-transfer (HTTP 401, 403, 410), partial data and chunks are preserved on disk. Users can supply a refreshed URL through the GUI or CLI to resume downloading remaining bytes.
 - **Concurrent Background Queue & Batch Ingestion**: Supports batch processing from plain text files (`urls.txt`) with configurable worker concurrency, automatic skipping of already-completed files, non-blocking failure recovery, and structured summary reporting.
 - **State Manifest Tracking**: Maintains download state in `.meta.json` manifests, allowing seamless resumption across process interruptions, network drops, and system restarts.
+- **BitTorrent & Magnet Link Engine**: Integrated high-performance BitTorrent client (`libtorrent` 2.x) supporting `.torrent` files and `magnet:?xt=urn:btih:...` URIs, non-blocking metadata downloads, DHT, PeX, LSD, and fastresume state persistence.
 - **Dual Interface**: Offers a dark-mode Windows 11 style desktop GUI (CustomTkinter) and a command-line interface with streaming progress indicators (Rich).
+- **Pre-Built Windows Releases**: Ready-to-run Windows Installer (`.exe`), Portable ZIP bundle, and standalone binary with native file associations and protocol handlers.
+
+---
+
+## Downloads & Releases
+
+Pre-compiled binary releases for Windows (x86_64) are published under [GitHub Releases](https://github.com/Bensonmusonda/my-download-manager/releases):
+
+| Asset | Description |
+| :--- | :--- |
+| **`SmartDownloadManager-v1.0.0-Setup.exe`** | **Full Windows Installer**: Installs the desktop application, creates Start Menu & Desktop shortcuts, registers `.torrent` file association, and configures the `magnet:` protocol handler. |
+| **`SmartDownloadManager-v1.0.0-Windows-Portable.zip`** | **Portable Archive**: Zero-install standalone package. Extract anywhere and launch `SmartDownloadManager.exe` immediately. |
+| **`SmartDownloadManager.exe`** | **Standalone Executable**: Single application binary. |
 
 ---
 
@@ -31,7 +45,8 @@ smart_downloader/
 |-- bridge_server.py        Local HTTP bridge server (127.0.0.1:8992) with CORS support
 |-- browser_session.py      Live extension session cache and offline SQLite cookie harvest
 |-- downloader.py           Core download engine (TLS impersonation, chunking, stitching)
-|-- queue_manager.py        Concurrent background task queue and batch processing engine
+|-- torrent_engine.py       BitTorrent & Magnet engine (libtorrent 2.x, DHT, PeX, fastresume)
+|-- queue_manager.py        Concurrent background task queue and protocol routing engine
 |-- state.py                Download state manifest models and incomplete file scanner
 |-- gui.py                  CustomTkinter desktop graphical user interface
 |-- cli.py                  Interactive and batch command-line interface
@@ -39,7 +54,8 @@ smart_downloader/
 |-- docs/                   Technical and user documentation library
 |-- test_download.py        Engine test suite (RFC 7233 range, chunking, link refresh)
 |-- test_bridge.py          Extension bridge and session cache test suite
-`-- test_queue.py           Queue concurrency, batch ingestion, and skip test suite
+|-- test_queue.py           Queue concurrency, batch ingestion, and skip test suite
+`-- test_torrent.py         BitTorrent loopback download, magnet, and fastresume test suite
 ```
 
 ---
@@ -194,6 +210,9 @@ python test_bridge.py
 
 # 3. Queue manager tests (batch parsing, sequential/concurrent processing, skip detection)
 python test_queue.py
+
+# 4. BitTorrent tests (magnet link parsing, loopback torrent transfer, fastresume persistence)
+python test_torrent.py
 ```
 
 ---

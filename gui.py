@@ -199,14 +199,14 @@ class SmartDownloaderApp(ctk.CTk):
         # URL Input
         self.url_label = ctk.CTkLabel(
             self.config_card,
-            text="Download URL",
+            text="Download URL / Magnet URI / .torrent File",
             font=ctk.CTkFont(weight="bold"),
         )
         self.url_label.grid(row=0, column=0, sticky="w", padx=16, pady=(8, 2))
 
         self.url_entry = ctk.CTkEntry(
             self.config_card,
-            placeholder_text="Paste direct download link, signed URL, or send directly from Chrome extension...",
+            placeholder_text="Paste direct download URL, magnet:?xt=... URI, or local .torrent file path...",
             height=34,
         )
         self.url_entry.grid(row=1, column=0, columnspan=3, sticky="ew", padx=16, pady=(0, 6))
@@ -298,10 +298,22 @@ class SmartDownloaderApp(ctk.CTk):
             fg_color="#2b719e",
             hover_color="#1f5475",
             height=34,
-            width=140,
+            width=135,
             command=self._on_import_urls_file,
         )
-        self.import_btn.pack(side="right", padx=(0, 10))
+        self.import_btn.pack(side="right", padx=(0, 8))
+
+        self.torrent_btn = ctk.CTkButton(
+            self.options_frame,
+            text="📄 .torrent",
+            font=ctk.CTkFont(weight="bold"),
+            fg_color="#4d4d4d",
+            hover_color="#3d3d3d",
+            height=34,
+            width=95,
+            command=self._on_choose_torrent_file,
+        )
+        self.torrent_btn.pack(side="right", padx=(0, 8))
 
         self.config_card.columnconfigure(0, weight=1)
         self.config_card.columnconfigure(1, weight=1)
@@ -625,14 +637,14 @@ class SmartDownloaderApp(ctk.CTk):
     # -----------------------------------------------------------------------
 
     def _on_start_download(self) -> None:
-        """Add URL from top entry card to queue and start."""
+        """Add URL or magnet/torrent from top entry card to queue and start."""
         url = self.url_entry.get().strip()
         if not url:
-            messagebox.showwarning("Missing URL", "Please enter a valid download URL.")
+            messagebox.showwarning("Missing URL", "Please enter a valid download URL, magnet URI, or .torrent file.")
             return
 
         dest = self.dest_entry.get().strip() or self.dest_dir
-        referer = self.referer_entry.get().strip() or infer_referer(url)
+        referer = self.referer_entry.get().strip() or (infer_referer(url) if not url.startswith("magnet:") else None)
 
         self.queue_mgr.add_item(url=url, referer=referer, dest_dir=dest)
         self.url_entry.delete(0, "end")
@@ -641,31 +653,49 @@ class SmartDownloaderApp(ctk.CTk):
         self.queue_mgr.start()
         self._update_queue_controls_state()
 
+    def _on_choose_torrent_file(self) -> None:
+        """File dialog to pick a .torrent file and populate the input."""
+        chosen = filedialog.askopenfilename(
+            title="Select BitTorrent (.torrent) File",
+            filetypes=[("Torrent Files", "*.torrent"), ("All Files", "*.*")],
+        )
+        if chosen:
+            self.url_entry.delete(0, "end")
+            self.url_entry.insert(0, chosen)
+            self.tabview.set("📋 Download Queue")
+
     def _on_import_urls_file(self) -> None:
         """File dialog to import urls.txt into the queue."""
         chosen = filedialog.askopenfilename(
-            title="Import URLs Batch File",
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+            title="Import URLs / Torrents Batch File",
+            filetypes=[("Text Files", "*.txt"), ("Torrent Files", "*.torrent"), ("All Files", "*.*")],
         )
         if not chosen:
             return
 
         dest = self.dest_entry.get().strip() or self.dest_dir
         try:
-            new_items = self.queue_mgr.add_items_from_file(chosen, dest_dir=dest)
-            if not new_items:
-                messagebox.showinfo("Import Batch", "No valid URLs found in the selected file.")
-                return
+            if chosen.lower().endswith(".torrent"):
+                item = self.queue_mgr.add_item(url=chosen, dest_dir=dest)
+                messagebox.showinfo(
+                    "Torrent Ingestion",
+                    f"Successfully ingested torrent task:\n{Path(chosen).name}",
+                )
+            else:
+                new_items = self.queue_mgr.add_items_from_file(chosen, dest_dir=dest)
+                if not new_items:
+                    messagebox.showinfo("Import Batch", "No valid URLs found in the selected file.")
+                    return
 
-            messagebox.showinfo(
-                "Batch Ingestion",
-                f"Successfully ingested {len(new_items)} download tasks from:\n{Path(chosen).name}",
-            )
+                messagebox.showinfo(
+                    "Batch Ingestion",
+                    f"Successfully ingested {len(new_items)} download tasks from:\n{Path(chosen).name}",
+                )
             self.tabview.set("📋 Download Queue")
             self.queue_mgr.start()
             self._update_queue_controls_state()
         except Exception as exc:
-            messagebox.showerror("Import Error", f"Failed to parse batch file:\n{exc}")
+            messagebox.showerror("Import Error", f"Failed to parse file:\n{exc}")
 
     def _load_initial_batch_file(self, file_path: str) -> None:
         """Load batch file passed via CLI argument."""
@@ -806,11 +836,24 @@ class SmartDownloaderApp(ctk.CTk):
 
         # Status text & badge color
         if item.status == QueueItemStatus.ACTIVE:
-            spd_text = f" ({item.formatted_speed})" if item.speed > 0 else ""
-            w["stat_badge"].configure(text=f"Downloading{spd_text}", text_color="#3498db")
-            w["stats_lbl"].configure(
-                text=f"{item.formatted_size} ({item.progress_fraction * 100:.1f}%) · {item.formatted_speed}"
-            )
+            if item.is_torrent_task:
+                if item.peers > 0 or item.seeds > 0:
+                    badge_text = f"⚡ Downloading ({item.formatted_speed} · {item.peers} peers · {item.seeds} seeds)"
+                    stats_text = (
+                        f"{item.formatted_size} ({item.progress_fraction * 100:.1f}%) · "
+                        f"{item.formatted_speed} · {item.peers} peers · {item.seeds} seeds"
+                    )
+                else:
+                    badge_text = f"⚡ {item.status_msg}"
+                    stats_text = f"{item.formatted_size} ({item.progress_fraction * 100:.1f}%) · {item.status_msg}"
+                w["stat_badge"].configure(text=badge_text, text_color="#3498db")
+                w["stats_lbl"].configure(text=stats_text)
+            else:
+                spd_text = f" ({item.formatted_speed})" if item.speed > 0 else ""
+                w["stat_badge"].configure(text=f"Downloading{spd_text}", text_color="#3498db")
+                w["stats_lbl"].configure(
+                    text=f"{item.formatted_size} ({item.progress_fraction * 100:.1f}%) · {item.formatted_speed}"
+                )
             w["action_btn"].configure(text="Pause", fg_color="#a83232", state="normal")
 
         elif item.status == QueueItemStatus.QUEUED:
@@ -819,8 +862,12 @@ class SmartDownloaderApp(ctk.CTk):
             w["action_btn"].configure(text="Pause", fg_color="#4d4d4d", state="normal")
 
         elif item.status == QueueItemStatus.COMPLETED:
-            w["stat_badge"].configure(text="Complete ✅", text_color="#2ecc71")
-            w["stats_lbl"].configure(text=f"{item.formatted_size} · Download finished")
+            if item.is_torrent_task:
+                w["stat_badge"].configure(text="Complete ✅ (Torrent)", text_color="#2ecc71")
+                w["stats_lbl"].configure(text=f"{item.formatted_size} · BitTorrent download finished")
+            else:
+                w["stat_badge"].configure(text="Complete ✅", text_color="#2ecc71")
+                w["stats_lbl"].configure(text=f"{item.formatted_size} · Download finished")
             w["pbar"].set(1.0)
             w["action_btn"].configure(text="Open", fg_color="#1f7a3a", state="normal")
 
