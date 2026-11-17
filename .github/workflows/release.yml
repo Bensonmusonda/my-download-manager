@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller Pillow
+
+      - name: Build Standalone Executable & Assets
+        run: |
+          python -c "from PIL import Image; img = Image.open('extension/icons/icon128.png'); img.save('app_icon.ico', format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128)])"
+          python -m PyInstaller --noconfirm SmartDownloadManager.spec
+
+      - name: Package Portable ZIP
+        run: |
+          python -c "import shutil, os; os.makedirs('dist_release', exist_ok=True); shutil.make_archive('dist_release/SmartDownloadManager-${{ github.ref_name }}-Windows-Portable', 'zip', 'dist/SmartDownloadManager')"
+          copy dist\SmartDownloadManager\SmartDownloadManager.exe dist_release\SmartDownloadManager.exe
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress
+
+      - name: Compile Inno Setup Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Smart Download Manager ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist_release/SmartDownloadManager-*-Setup.exe
+            dist_release/SmartDownloadManager-*-Windows-Portable.zip
+            dist_release/SmartDownloadManager.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
