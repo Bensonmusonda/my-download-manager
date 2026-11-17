@@ -1,0 +1,11 @@
+# Core HTTP engine with browser TLS fingerprinting (bypasses Cloudflare JA3 checks)
+curl_cffi>=0.7
+
+# Rich terminal UI: progress bars, styled text, tables
+rich>=13.0
+
+# Extract cookies from local browsers (Chrome, Firefox, Edge, etc.)
+browser-cookie3>=0.19
+
+# Modern desktop GUI
+customtkinter>=6.0.0

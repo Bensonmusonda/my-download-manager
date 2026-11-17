@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Smart Downloader</title>
+  <style>
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #1a1a1a;
+      color: #e6e6e6;
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #333;
+    }
+    .header h2 {
+      margin: 0;
+      font-size: 15px;
+      color: #38bdf8;
+    }
+    .status-badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-weight: bold;
+    }
+    .online {
+      background-color: #14532d;
+      color: #4ade80;
+    }
+    .offline {
+      background-color: #451a1a;
+      color: #f87171;
+    }
+    .card {
+      background-color: #242424;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+    .card-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .card-row:last-child {
+      margin-bottom: 0;
+    }
+    .label {
+      color: #9ca3af;
+    }
+    .val {
+      font-weight: bold;
+      color: #f3f4f6;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .btn {
+      width: 100%;
+      padding: 9px 12px;
+      border: none;
+      border-radius: 6px;
+      background-color: #0284c7;
+      color: #fff;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      transition: background 0.15s ease;
+    }
+    .btn:hover {
+      background-color: #0369a1;
+    }
+    .btn-secondary {
+      background-color: #374151;
+      color: #e5e7eb;
+    }
+    .btn-secondary:hover {
+      background-color: #4b5563;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #333;
+    }
+    .toast {
+      margin-top: 8px;
+      font-size: 11px;
+      text-align: center;
+      min-height: 16px;
+      color: #4ade80;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>⬇ Smart Downloader</h2>
+    <span id="appStatus" class="status-badge offline">Checking...</span>
+  </div>
+
+  <div class="card">
+    <div class="card-row">
+      <span class="label">Current Tab:</span>
+      <span class="val" id="tabDomain">--</span>
+    </div>
+    <div class="card-row">
+      <span class="label">Cloudflare:</span>
+      <span class="val" id="cfStatus">Scanning...</span>
+    </div>
+    <div class="card-row">
+      <span class="label">Cookies:</span>
+      <span class="val" id="cookieCount">0 found</span>
+    </div>
+  </div>
+
+  <button id="sendSessionBtn" class="btn">
+    🛡 Send Session (cf_clearance) to App
+  </button>
+
+  <button id="sendUrlBtn" class="btn btn-secondary">
+    ⬇ Send Page URL as Download
+  </button>
+
+  <div class="toggle-row">
+    <span>Auto-catch downloads</span>
+    <input type="checkbox" id="autoCatchToggle" checked>
+  </div>
+
+  <div class="toast" id="toastMsg"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,43 @@
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+ENV/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local downloaded files and temporary chunks
+downloads/
+test_downloads/
+test_queue_downloads/
+*.part*
+*.meta.json
+urls.txt
+
+# Internal project planning and handoff documents
+HANDOFF.md
+project_spec.md
+
+# Logs and runtime files
+*.log
+
+# Editor and IDE configurations
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# Operating System artifacts
+Thumbs.db
+desktop.ini
+.DS_Store
