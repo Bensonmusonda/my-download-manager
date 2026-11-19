@@ -415,6 +415,10 @@ class QueueManager:
             self._notify_item_updated(item)
         return True
 
+    def update_item_url(self, item_id: str, fresh_url: str) -> bool:
+        """Update URL of an expired or paused item and mark ready for resume."""
+        return self.resume_item(item_id, fresh_url=fresh_url)
+
     def remove_item(self, item_id: str) -> bool:
         """Remove item from queue (pauses if currently active)."""
         with self._lock:

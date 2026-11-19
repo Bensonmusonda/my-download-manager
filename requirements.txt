@@ -12,3 +12,9 @@ customtkinter>=6.0.0
 
 # BitTorrent & Magnet link engine
 libtorrent>=2.1.1
+
+# High-performance SVG icon rasterizer for Lucide icons
+resvg-py>=0.5.0
+
+# Windows system tray and desktop integration
+pywin32>=306

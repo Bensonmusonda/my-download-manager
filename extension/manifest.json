@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Smart Download Manager Bridge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Bypasses Cloudflare by securely sharing cf_clearance cookies and download streams with Smart Download Manager.",
   "permissions": [
     "cookies",

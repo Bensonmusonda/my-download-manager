@@ -27,8 +27,8 @@ Pre-compiled binary releases for Windows (x86_64) are published under [GitHub Re
 
 | Asset | Description |
 | :--- | :--- |
-| **`SmartDownloadManager-v1.0.0-Setup.exe`** | **Full Windows Installer**: Installs the desktop application, creates Start Menu & Desktop shortcuts, registers `.torrent` file association, and configures the `magnet:` protocol handler. |
-| **`SmartDownloadManager-v1.0.0-Windows-Portable.zip`** | **Portable Archive**: Zero-install standalone package. Extract anywhere and launch `SmartDownloadManager.exe` immediately. |
+| **`SmartDownloadManager-v1.1.0-Setup.exe`** | **Full Windows Installer**: Installs the desktop application, creates Start Menu & Desktop shortcuts, registers `.torrent` file association, and configures the `magnet:` protocol handler. |
+| **`SmartDownloadManager-v1.1.0-Windows-Portable.zip`** | **Portable Archive**: Zero-install standalone package. Extract anywhere and launch `SmartDownloadManager.exe` immediately. |
 | **`SmartDownloadManager.exe`** | **Standalone Executable**: Single application binary. |
 
 ---
