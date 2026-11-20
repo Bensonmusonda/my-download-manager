@@ -2,152 +2,428 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Smart Downloader</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Download Manager</title>
   <style>
-    body {
-      width: 320px;
-      margin: 0;
-      padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: #1a1a1a;
-      color: #e6e6e6;
-      box-sizing: border-box;
+    :root {
+      --bg-window: #0f172a;
+      --bg-card: #1e293b;
+      --border-card: #334155;
+      --border-light: #475569;
+      --text-primary: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent-blue: #2563eb;
+      --accent-hover: #1d4ed8;
+      --emerald-green: #10b981;
+      --emerald-bg: rgba(16, 185, 129, 0.15);
+      --emerald-border: rgba(16, 185, 129, 0.3);
+      --amber-warn: #f59e0b;
+      --amber-bg: rgba(245, 158, 11, 0.15);
+      --red-err: #ef4444;
+      --red-bg: rgba(239, 68, 68, 0.15);
+      --btn-secondary: #334155;
+      --btn-secondary-hover: #3e4f66;
     }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 330px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-window);
+      color: var(--text-primary);
+      padding: 14px 16px;
+      user-select: none;
+    }
+
+    /* Header */
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid #333;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-card);
     }
-    .header h2 {
-      margin: 0;
-      font-size: 15px;
-      color: #38bdf8;
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
+
+    .brand-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 5px;
+    }
+
+    .brand-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.2px;
+    }
+
+    .version-tag {
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-dim);
+      background-color: rgba(51, 65, 85, 0.6);
+      padding: 1px 5px;
+      border-radius: 4px;
+      margin-left: 2px;
+    }
+
     .status-badge {
-      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      font-size: 10.5px;
+      font-weight: 600;
       padding: 3px 8px;
       border-radius: 12px;
-      font-weight: bold;
+      transition: all 0.2s ease;
     }
-    .online {
-      background-color: #14532d;
-      color: #4ade80;
+
+    .status-badge.online {
+      background-color: var(--emerald-bg);
+      color: var(--emerald-green);
+      border: 1px solid var(--emerald-border);
     }
-    .offline {
-      background-color: #451a1a;
-      color: #f87171;
+
+    .status-badge.offline {
+      background-color: var(--red-bg);
+      color: var(--red-err);
+      border: 1px solid rgba(239, 68, 68, 0.3);
     }
+
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-right: 5px;
+    }
+
+    .status-badge.online .pulse-dot {
+      background-color: var(--emerald-green);
+      box-shadow: 0 0 6px var(--emerald-green);
+    }
+
+    .status-badge.offline .pulse-dot {
+      background-color: var(--red-err);
+    }
+
+    /* Inspection Card */
     .card {
-      background-color: #242424;
-      border-radius: 8px;
-      padding: 12px;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 9px;
+      padding: 11px 13px;
       margin-bottom: 12px;
       font-size: 12px;
     }
+
     .card-row {
       display: flex;
+      align-items: center;
       justify-content: space-between;
-      margin-bottom: 6px;
+      margin-bottom: 7px;
     }
+
     .card-row:last-child {
       margin-bottom: 0;
     }
-    .label {
-      color: #9ca3af;
+
+    .card-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      font-size: 11.5px;
     }
-    .val {
-      font-weight: bold;
-      color: #f3f4f6;
-      max-width: 180px;
+
+    .card-label svg {
+      width: 13px;
+      height: 13px;
+      stroke: var(--text-muted);
+    }
+
+    .card-val {
+      font-weight: 600;
+      color: var(--text-primary);
+      max-width: 170px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      text-align: right;
     }
+
+    .pill-status {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 6px;
+    }
+
+    .pill-cf-active {
+      background-color: var(--emerald-bg);
+      color: var(--emerald-green);
+      border: 1px solid var(--emerald-border);
+    }
+
+    .pill-cf-none {
+      background-color: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+
+    .pill-cf-neutral {
+      background-color: rgba(148, 163, 184, 0.12);
+      color: var(--text-muted);
+    }
+
+    /* Buttons */
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
     .btn {
       width: 100%;
-      padding: 9px 12px;
+      height: 35px;
       border: none;
-      border-radius: 6px;
-      background-color: #0284c7;
-      color: #fff;
+      border-radius: 7px;
       font-weight: 600;
       font-size: 12px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      margin-bottom: 8px;
-      transition: background 0.15s ease;
+      gap: 7px;
+      transition: background 0.15s ease, transform 0.05s ease;
+      color: #ffffff;
     }
-    .btn:hover {
-      background-color: #0369a1;
+
+    .btn:active {
+      transform: scale(0.985);
     }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary {
+      background-color: var(--accent-blue);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background-color: var(--accent-hover);
+    }
+
     .btn-secondary {
-      background-color: #374151;
-      color: #e5e7eb;
+      background-color: var(--btn-secondary);
+      border: 1px solid var(--border-light);
+      color: var(--text-primary);
     }
-    .btn-secondary:hover {
-      background-color: #4b5563;
+
+    .btn-secondary:hover:not(:disabled) {
+      background-color: var(--btn-secondary-hover);
     }
-    .toggle-row {
+
+    .btn svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+    }
+
+    /* Auto-Catch Toggle Switch */
+    .toggle-section {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 12px;
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid #333;
+      padding: 9px 12px;
+      background-color: rgba(30, 41, 59, 0.6);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
     }
+
+    .toggle-info {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .toggle-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .toggle-desc {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    /* iOS/Tailwind Toggle */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #475569;
+      transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 20px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent-blue);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(16px);
+    }
+
+    /* Toast Notification */
     .toast {
-      margin-top: 8px;
-      font-size: 11px;
+      margin-top: 10px;
+      font-size: 11.5px;
+      font-weight: 500;
       text-align: center;
-      min-height: 16px;
-      color: #4ade80;
+      min-height: 20px;
+      padding: 5px 8px;
+      border-radius: 6px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+    }
+
+    .toast.success {
+      display: flex;
+      background-color: var(--emerald-bg);
+      color: var(--emerald-green);
+      border: 1px solid var(--emerald-border);
+    }
+
+    .toast.error {
+      display: flex;
+      background-color: var(--red-bg);
+      color: var(--red-err);
+      border: 1px solid rgba(239, 68, 68, 0.3);
     }
   </style>
 </head>
 <body>
+
+  <!-- Header -->
   <div class="header">
-    <h2>⬇ Smart Downloader</h2>
-    <span id="appStatus" class="status-badge offline">Checking...</span>
+    <div class="brand">
+      <img src="icons/icon48.png" alt="SDM" class="brand-icon">
+      <span class="brand-title">Smart Downloader</span>
+      <span class="version-tag">v1.2.0</span>
+    </div>
+    <div id="appStatus" class="status-badge offline">
+      <span class="pulse-dot"></span>
+      <span id="appStatusText">Checking...</span>
+    </div>
   </div>
 
+  <!-- Inspection Card -->
   <div class="card">
     <div class="card-row">
-      <span class="label">Current Tab:</span>
-      <span class="val" id="tabDomain">--</span>
+      <span class="card-label">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        Site Domain
+      </span>
+      <span class="card-val" id="tabDomain">--</span>
     </div>
     <div class="card-row">
-      <span class="label">Cloudflare:</span>
-      <span class="val" id="cfStatus">Scanning...</span>
+      <span class="card-label">
+        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Cloudflare
+      </span>
+      <span class="card-val" id="cfStatus">Scanning...</span>
     </div>
     <div class="card-row">
-      <span class="label">Cookies:</span>
-      <span class="val" id="cookieCount">0 found</span>
+      <span class="card-label">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Cookies
+      </span>
+      <span class="card-val" id="cookieCount">0 found</span>
     </div>
   </div>
 
-  <button id="sendSessionBtn" class="btn">
-    🛡 Send Session (cf_clearance) to App
-  </button>
+  <!-- Action Triggers -->
+  <div class="actions">
+    <button id="sendSessionBtn" class="btn btn-primary">
+      <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+      <span>Send Session & Referer to App</span>
+    </button>
 
-  <button id="sendUrlBtn" class="btn btn-secondary">
-    ⬇ Send Page URL as Download
-  </button>
-
-  <div class="toggle-row">
-    <span>Auto-catch downloads</span>
-    <input type="checkbox" id="autoCatchToggle" checked>
+    <button id="sendUrlBtn" class="btn btn-secondary">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span>Download Page URL in App</span>
+    </button>
   </div>
 
+  <!-- Auto-Catch Toggle Switch -->
+  <div class="toggle-section">
+    <div class="toggle-info">
+      <span class="toggle-title">Auto-Catch Downloads</span>
+      <span class="toggle-desc">Directs browser downloads to SDM</span>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="autoCatchToggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <!-- Toast Feedback -->
   <div class="toast" id="toastMsg"></div>
 
   <script src="popup.js"></script>
 </body>
 </html>
-

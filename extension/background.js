@@ -257,4 +257,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message.type === "DOWNLOAD_ACTIVE_TAB") {
+    chrome.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
+      if (!tabs || tabs.length === 0) {
+        sendResponse({ success: false, error: "No active tab" });
+        return;
+      }
+      const activeTab = tabs[0];
+      const cookieInfo = await getCookiesForUrl(activeTab.url);
+
+      const payload = {
+        url: activeTab.url,
+        referer: activeTab.url,
+        cookies: cookieInfo.cookieHeader,
+        user_agent: navigator.userAgent,
+        filename: activeTab.title || "",
+      };
+
+      const sent = await sendDownloadToApp(payload);
+      sendResponse({ success: sent, cookieInfo, url: activeTab.url });
+    });
+    return true;
+  }
 });

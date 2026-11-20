@@ -1,9 +1,11 @@
 /**
  * Smart Download Manager — Popup Script
+ * Modernized UI controller with live telemetry and feedback toasts.
  */
 
 document.addEventListener("DOMContentLoaded", async () => {
   const appStatus = document.getElementById("appStatus");
+  const appStatusText = document.getElementById("appStatusText");
   const tabDomain = document.getElementById("tabDomain");
   const cfStatus = document.getElementById("cfStatus");
   const cookieCount = document.getElementById("cookieCount");
@@ -12,114 +14,129 @@ document.addEventListener("DOMContentLoaded", async () => {
   const autoCatchToggle = document.getElementById("autoCatchToggle");
   const toastMsg = document.getElementById("toastMsg");
 
+  let toastTimer = null;
+
   function showToast(msg, isError = false) {
+    if (toastTimer) clearTimeout(toastTimer);
     toastMsg.textContent = msg;
-    toastMsg.style.color = isError ? "#f87171" : "#4ade80";
-    setTimeout(() => {
+    toastMsg.className = `toast ${isError ? "error" : "success"}`;
+    toastTimer = setTimeout(() => {
+      toastMsg.className = "toast";
       toastMsg.textContent = "";
-    }, 3500);
+    }, 4000);
   }
 
   // 1. Check autoCatch setting
-  const settings = await chrome.storage.local.get({ autoCatch: true });
-  autoCatchToggle.checked = settings.autoCatch;
+  try {
+    const settings = await chrome.storage.local.get({ autoCatch: true });
+    autoCatchToggle.checked = settings.autoCatch;
 
-  autoCatchToggle.addEventListener("change", async (e) => {
-    await chrome.storage.local.set({ autoCatch: e.target.checked });
-    showToast(e.target.checked ? "Auto-catch enabled" : "Auto-catch disabled");
-  });
+    autoCatchToggle.addEventListener("change", async (e) => {
+      await chrome.storage.local.set({ autoCatch: e.target.checked });
+      showToast(e.target.checked ? "✔ Auto-catch downloads enabled" : "ℹ Auto-catch disabled");
+    });
+  } catch (err) {
+    console.warn("Storage error:", err);
+  }
 
-  // 2. Check connection to desktop app
+  // 2. Check connection to desktop bridge server (port 8992)
   chrome.runtime.sendMessage({ type: "CHECK_STATUS" }, (response) => {
     if (response && response.online) {
-      appStatus.textContent = "Connected";
       appStatus.className = "status-badge online";
+      appStatusText.textContent = "Bridge Active";
     } else {
-      appStatus.textContent = "App Offline";
       appStatus.className = "status-badge offline";
+      appStatusText.textContent = "App Offline";
     }
   });
 
-  // 3. Inspect active tab with robust URL-based cookie search
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (activeTab && activeTab.url && activeTab.url.startsWith("http")) {
-    try {
+  // 3. Inspect active tab for domain and Cloudflare cookies
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (activeTab && activeTab.url && activeTab.url.startsWith("http")) {
       const parsed = new URL(activeTab.url);
       tabDomain.textContent = parsed.hostname;
+      tabDomain.title = activeTab.url;
 
-      // Query both URL and domain
       const cookiesMap = new Map();
       let hasCf = false;
 
-      const byUrl = await chrome.cookies.getAll({ url: activeTab.url });
-      if (byUrl) {
-        for (const c of byUrl) {
-          cookiesMap.set(c.name, c.value);
-          if (c.name === "cf_clearance") hasCf = true;
+      // Harvest by URL
+      try {
+        const byUrl = await chrome.cookies.getAll({ url: activeTab.url });
+        if (byUrl) {
+          for (const c of byUrl) {
+            cookiesMap.set(c.name, c.value);
+            if (c.name === "cf_clearance") hasCf = true;
+          }
         }
-      }
+      } catch (e) {}
 
-      const byDomain = await chrome.cookies.getAll({ domain: parsed.hostname });
-      if (byDomain) {
-        for (const c of byDomain) {
-          cookiesMap.set(c.name, c.value);
-          if (c.name === "cf_clearance") hasCf = true;
+      // Harvest by domain
+      try {
+        const byDomain = await chrome.cookies.getAll({ domain: parsed.hostname });
+        if (byDomain) {
+          for (const c of byDomain) {
+            cookiesMap.set(c.name, c.value);
+            if (c.name === "cf_clearance") hasCf = true;
+          }
         }
-      }
+      } catch (e) {}
 
       if (hasCf) {
-        cfStatus.textContent = "🛡 cf_clearance active ✅";
-        cfStatus.style.color = "#4ade80";
+        cfStatus.innerHTML = '<span class="pill-status pill-cf-active">🛡 cf_clearance active</span>';
       } else if (cookiesMap.size > 0) {
-        cfStatus.textContent = "🌐 Session ready (no captcha)";
-        cfStatus.style.color = "#38bdf8";
+        cfStatus.innerHTML = '<span class="pill-status pill-cf-none">🌐 Session Ready</span>';
       } else {
-        cfStatus.textContent = "⚪ No cookies on page";
-        cfStatus.style.color = "#9ca3af";
+        cfStatus.innerHTML = '<span class="pill-status pill-cf-neutral">No cookies</span>';
       }
 
-      cookieCount.textContent = `${cookiesMap.size} cookie(s)`;
-    } catch (e) {
-      tabDomain.textContent = "Invalid URL";
+      cookieCount.textContent = `${cookiesMap.size} harvested`;
+    } else {
+      tabDomain.textContent = "Non-web page";
+      cfStatus.innerHTML = '<span class="pill-status pill-cf-neutral">--</span>';
+      cookieCount.textContent = "0";
+      sendSessionBtn.disabled = true;
+      sendUrlBtn.disabled = true;
     }
-  } else {
-    tabDomain.textContent = "Non-web page";
-    cfStatus.textContent = "--";
-    cookieCount.textContent = "0";
+  } catch (err) {
+    tabDomain.textContent = "Unable to read tab";
+    console.error("Tab query error:", err);
   }
 
-  // 4. Send session button click
+  // 4. Send session & Referer to desktop app
   sendSessionBtn.addEventListener("click", () => {
     sendSessionBtn.disabled = true;
-    sendSessionBtn.textContent = "Sending...";
+    sendSessionBtn.querySelector("span").textContent = "Sending Session...";
 
     chrome.runtime.sendMessage({ type: "SEND_ACTIVE_TAB" }, (res) => {
       sendSessionBtn.disabled = false;
-      sendSessionBtn.textContent = "🛡 Send Session & Referer to App";
+      sendSessionBtn.querySelector("span").textContent = "Send Session & Referer to App";
 
       if (res && res.success) {
-        showToast(
-          res.cookieInfo?.hasCfClearance
-            ? "✅ cf_clearance & Referer sent to App!"
-            : "✅ Session cookies & Referer sent to App!"
-        );
+        const msg = res.cookieInfo?.hasCfClearance
+          ? "✅ cf_clearance session synced to App!"
+          : "✅ Cookies & Referer synced to App!";
+        showToast(msg);
       } else {
-        showToast("Failed: Is Smart Downloader running?", true);
+        showToast("Failed: Is Smart Download Manager running?", true);
       }
     });
   });
 
-  // 5. Send page URL as download
-  sendUrlBtn.addEventListener("click", async () => {
-    if (!activeTab || !activeTab.url) return;
+  // 5. Send page URL as a download task
+  sendUrlBtn.addEventListener("click", () => {
     sendUrlBtn.disabled = true;
+    sendUrlBtn.querySelector("span").textContent = "Dispatching Task...";
 
-    chrome.runtime.sendMessage({ type: "SEND_ACTIVE_TAB" }, async (res) => {
+    chrome.runtime.sendMessage({ type: "DOWNLOAD_ACTIVE_TAB" }, (res) => {
       sendUrlBtn.disabled = false;
+      sendUrlBtn.querySelector("span").textContent = "Download Page URL in App";
+
       if (res && res.success) {
         showToast("⬇ Task dispatched to Smart Downloader!");
       } else {
-        showToast("Desktop app offline. Launch it first.", true);
+        showToast("Failed: Is Smart Downloader running on port 8992?", true);
       }
     });
   });
