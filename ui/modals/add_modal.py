@@ -1,7 +1,7 @@
 """
 Smart 'New Download' Modal Dialog for Smart Download Manager.
 Features clipboard auto-inspection, file name inference, folder picker,
-and collapsible Advanced HTTP & Anti-Hotlink Options accordion.
+smart category auto-routing, and collapsible Advanced HTTP & Anti-Hotlink Options.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from downloader import (
     infer_referer,
 )
 from queue_manager import QueueItem
+from storage_manager import SMART_FOLDER_NAME, get_file_category, resolve_download_folder
 from ui.icons import get_icon
 from ui.theme import (
     COLOR_BG_CARD,
@@ -49,15 +50,20 @@ class AddDownloadModal(ctk.CTkToplevel):
         parent: ctk.CTk,
         default_dest: str,
         on_add: Callable[[str, Optional[str], Optional[str], str, bool, int, int], Optional[QueueItem]],
+        use_smart_folders: bool = True,
+        smart_folder_name: str = SMART_FOLDER_NAME,
     ):
         super().__init__(parent)
         self.parent = parent
         self.default_dest = default_dest
         self.on_add = on_add
+        self.use_smart_folders = use_smart_folders
+        self.smart_folder_name = smart_folder_name
+        self.user_manually_edited_folder = False
 
         self.title("New Download")
-        self.geometry("620x540")
-        self.minsize(560, 480)
+        self.geometry("620x560")
+        self.minsize(560, 500)
         self.transient(parent)
         self.configure(fg_color=COLOR_BG_WINDOW)
 
@@ -81,7 +87,7 @@ class AddDownloadModal(ctk.CTkToplevel):
             px = self.parent.winfo_x()
             py = self.parent.winfo_y()
             w = 620
-            h = 540
+            h = 560
             x = px + max(0, (pw - w) // 2)
             y = py + max(0, (ph - h) // 2)
             self.geometry(f"{w}x{h}+{x}+{y}")
@@ -147,6 +153,7 @@ class AddDownloadModal(ctk.CTkToplevel):
             font=get_body_font(),
         )
         self.name_entry.pack(fill="x", pady=(0, 12))
+        self.name_entry.bind("<KeyRelease>", self._on_name_changed)
 
         # 3. Save Folder
         folder_label = ctk.CTkLabel(
@@ -158,7 +165,7 @@ class AddDownloadModal(ctk.CTkToplevel):
         folder_label.pack(anchor="w", pady=(0, 4))
 
         folder_row = ctk.CTkFrame(container, fg_color="transparent")
-        folder_row.pack(fill="x", pady=(0, 12))
+        folder_row.pack(fill="x", pady=(0, 6))
 
         self.folder_entry = ctk.CTkEntry(
             folder_row,
@@ -168,6 +175,7 @@ class AddDownloadModal(ctk.CTkToplevel):
         )
         self.folder_entry.insert(0, self.default_dest)
         self.folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.folder_entry.bind("<KeyRelease>", lambda e: self._on_manual_folder_edit())
 
         browse_btn = ctk.CTkButton(
             folder_row,
@@ -182,6 +190,29 @@ class AddDownloadModal(ctk.CTkToplevel):
             command=self._on_browse_folder,
         )
         browse_btn.pack(side="right")
+
+        # Smart Category Routing Row
+        self.smart_row = ctk.CTkFrame(container, fg_color="transparent")
+        self.smart_row.pack(fill="x", pady=(0, 12))
+
+        self.smart_var = ctk.BooleanVar(value=self.use_smart_folders)
+        self.smart_check = ctk.CTkCheckBox(
+            self.smart_row,
+            text="Auto-sort into Smart Category folder",
+            variable=self.smart_var,
+            font=get_caption_font(),
+            text_color=COLOR_TEXT_PRIMARY,
+            command=self._on_smart_check_toggle,
+        )
+        self.smart_check.pack(side="left")
+
+        self.category_badge = ctk.CTkLabel(
+            self.smart_row,
+            text="",
+            font=get_caption_font(),
+            text_color="#38bdf8",
+        )
+        self.category_badge.pack(side="left", padx=(12, 0))
 
         # 4. Collapsible Advanced Options Accordion
         self.accordion_btn = ctk.CTkButton(
@@ -223,51 +254,55 @@ class AddDownloadModal(ctk.CTkToplevel):
         )
         self.referer_entry.pack(fill="x", padx=14, pady=(0, 10))
 
-        # Advanced contents: Concurrency & Chunking
-        adv_grid = ctk.CTkFrame(self.advanced_frame, fg_color="transparent")
-        adv_grid.pack(fill="x", padx=14, pady=(0, 12))
+        # Advanced options row: Connections & Min chunk size
+        adv_opts_row = ctk.CTkFrame(self.advanced_frame, fg_color="transparent")
+        adv_opts_row.pack(fill="x", padx=14, pady=(0, 12))
 
-        # Connections dropdown
-        conn_box = ctk.CTkFrame(adv_grid, fg_color="transparent")
-        conn_box.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        conn_col = ctk.CTkFrame(adv_opts_row, fg_color="transparent")
+        conn_col.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
-        conn_lbl = ctk.CTkLabel(conn_box, text="Parallel Connections", font=get_caption_font(), text_color=COLOR_TEXT_MUTED)
+        conn_lbl = ctk.CTkLabel(
+            conn_col,
+            text="Parallel Connections",
+            font=get_caption_font(),
+            text_color=COLOR_TEXT_MUTED,
+        )
         conn_lbl.pack(anchor="w")
 
         self.conn_menu = ctk.CTkOptionMenu(
-            conn_box,
+            conn_col,
             values=["1 (Single)", "2", "4", "6 (Recommended)", "8", "12"],
             height=28,
             corner_radius=RADIUS_INPUT,
             fg_color=COLOR_BTN_SECONDARY,
-            button_color=COLOR_ACCENT,
-            button_hover_color=COLOR_ACCENT_HOVER,
         )
-        self.conn_menu.set("6 (Recommended)")
+        self.conn_menu.set(f"{DEFAULT_NUM_CONNECTIONS} (Recommended)")
         self.conn_menu.pack(fill="x", pady=(2, 0))
 
-        # Min chunk dropdown
-        chunk_box = ctk.CTkFrame(adv_grid, fg_color="transparent")
-        chunk_box.pack(side="right", fill="x", expand=True, padx=(8, 0))
+        chunk_col = ctk.CTkFrame(adv_opts_row, fg_color="transparent")
+        chunk_col.pack(side="right", fill="x", expand=True, padx=(6, 0))
 
-        chunk_lbl = ctk.CTkLabel(chunk_box, text="Min Chunk Threshold", font=get_caption_font(), text_color=COLOR_TEXT_MUTED)
+        chunk_lbl = ctk.CTkLabel(
+            chunk_col,
+            text="Chunking Threshold",
+            font=get_caption_font(),
+            text_color=COLOR_TEXT_MUTED,
+        )
         chunk_lbl.pack(anchor="w")
 
         self.chunk_menu = ctk.CTkOptionMenu(
-            chunk_box,
-            values=["10 MB", "25 MB", "50 MB", "100 MB"],
+            chunk_col,
+            values=["10 MB", "25 MB", "50 MB (Default)", "100 MB"],
             height=28,
             corner_radius=RADIUS_INPUT,
             fg_color=COLOR_BTN_SECONDARY,
-            button_color=COLOR_ACCENT,
-            button_hover_color=COLOR_ACCENT_HOVER,
         )
-        self.chunk_menu.set("50 MB")
+        self.chunk_menu.set(f"{MULTI_CHUNK_MIN_SIZE // (1024 * 1024)} MB (Default)")
         self.chunk_menu.pack(fill="x", pady=(2, 0))
 
-        # 5. Footer Action Buttons
+        # Footer Actions (Sticky Bottom)
         footer = ctk.CTkFrame(container, fg_color="transparent")
-        footer.pack(fill="x", side="bottom", pady=(14, 0))
+        footer.pack(fill="x", side="bottom", pady=(10, 0))
 
         cancel_btn = ctk.CTkButton(
             footer,
@@ -333,9 +368,48 @@ class AddDownloadModal(ctk.CTkToplevel):
         else:
             self.url_entry.focus_set()
 
+    def _on_manual_folder_edit(self) -> None:
+        self.user_manually_edited_folder = True
+        self.category_badge.configure(text="Custom folder selected", text_color=COLOR_TEXT_MUTED)
+
+    def _on_smart_check_toggle(self) -> None:
+        self.user_manually_edited_folder = False
+        self._update_destination_folder()
+
+    def _update_destination_folder(self) -> None:
+        if self.user_manually_edited_folder:
+            return
+
+        target_name = self.name_entry.get().strip() or self.url_entry.get().strip()
+        if not target_name:
+            self.folder_entry.delete(0, "end")
+            self.folder_entry.insert(0, self.default_dest)
+            self.category_badge.configure(text="")
+            return
+
+        cat = get_file_category(target_name)
+        if self.smart_var.get():
+            folder = resolve_download_folder(
+                self.default_dest,
+                name_or_url=target_name,
+                use_smart_folders=True,
+                smart_folder_name=self.smart_folder_name,
+            )
+            self.folder_entry.delete(0, "end")
+            self.folder_entry.insert(0, str(folder))
+            self.category_badge.configure(text=f"📂 Category: {cat}", text_color="#38bdf8")
+        else:
+            self.folder_entry.delete(0, "end")
+            self.folder_entry.insert(0, self.default_dest)
+            self.category_badge.configure(text="")
+
+    def _on_name_changed(self, event=None) -> None:
+        self._update_destination_folder()
+
     def _on_url_changed(self, event=None) -> None:
         url = self.url_entry.get().strip()
         if not url:
+            self.category_badge.configure(text="")
             return
 
         # Auto-infer referer
@@ -355,6 +429,8 @@ class AddDownloadModal(ctk.CTkToplevel):
             except Exception:
                 pass
 
+        self._update_destination_folder()
+
     def _toggle_advanced(self) -> None:
         if self.advanced_visible:
             self.advanced_frame.pack_forget()
@@ -369,8 +445,10 @@ class AddDownloadModal(ctk.CTkToplevel):
         init_dir = self.folder_entry.get().strip() or self.default_dest
         chosen = filedialog.askdirectory(initialdir=init_dir)
         if chosen:
+            self.user_manually_edited_folder = True
             self.folder_entry.delete(0, "end")
             self.folder_entry.insert(0, chosen)
+            self.category_badge.configure(text="Custom folder selected", text_color=COLOR_TEXT_MUTED)
 
     def _get_connections_count(self) -> int:
         val = self.conn_menu.get().split()[0]

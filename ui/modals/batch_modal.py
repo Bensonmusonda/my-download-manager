@@ -1,6 +1,7 @@
 """
 Batch Ingestion Modal Dialog for Smart Download Manager.
-Allows importing urls.txt or pasting multiple URLs/magnets with instant preview.
+Allows importing urls.txt or pasting multiple URLs/magnets with instant preview
+and optional auto-sorting into Smart Category folders.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from typing import Callable, List
 import customtkinter as ctk
 
 from queue_manager import QueueItem, parse_urls_file
+from storage_manager import SMART_FOLDER_NAME, resolve_download_folder
 from ui.icons import get_icon
 from ui.theme import (
     COLOR_BG_CARD,
@@ -41,15 +43,19 @@ class BatchIngestionModal(ctk.CTkToplevel):
         parent: ctk.CTk,
         default_dest: str,
         on_import: Callable[[List[QueueItem], bool], None],
+        use_smart_folders: bool = True,
+        smart_folder_name: str = SMART_FOLDER_NAME,
     ):
         super().__init__(parent)
         self.parent = parent
         self.default_dest = default_dest
         self.on_import = on_import
+        self.use_smart_folders = use_smart_folders
+        self.smart_folder_name = smart_folder_name
 
         self.title("Batch Ingestion")
-        self.geometry("680x520")
-        self.minsize(600, 440)
+        self.geometry("680x540")
+        self.minsize(600, 460)
         self.transient(parent)
         self.configure(fg_color=COLOR_BG_WINDOW)
 
@@ -67,7 +73,7 @@ class BatchIngestionModal(ctk.CTkToplevel):
             px = self.parent.winfo_x()
             py = self.parent.winfo_y()
             w = 680
-            h = 520
+            h = 540
             x = px + max(0, (pw - w) // 2)
             y = py + max(0, (ph - h) // 2)
             self.geometry(f"{w}x{h}+{x}+{y}")
@@ -125,7 +131,7 @@ class BatchIngestionModal(ctk.CTkToplevel):
         # Multiline Text Entry (for paste or file content)
         self.text_box = ctk.CTkTextbox(
             container,
-            height=180,
+            height=160,
             corner_radius=RADIUS_CARD,
             font=get_mono_font(),
             fg_color=COLOR_BG_CARD,
@@ -146,11 +152,11 @@ class BatchIngestionModal(ctk.CTkToplevel):
             font=get_bold_font(),
             text_color=COLOR_TEXT_MUTED,
         )
-        self.count_badge.pack(anchor="w", pady=(0, 12))
+        self.count_badge.pack(anchor="w", pady=(0, 8))
 
         # Destination Folder Row
         dest_row = ctk.CTkFrame(container, fg_color="transparent")
-        dest_row.pack(fill="x", pady=(0, 16))
+        dest_row.pack(fill="x", pady=(0, 6))
 
         dest_lbl = ctk.CTkLabel(dest_row, text="Target Folder:", font=get_bold_font(), text_color=COLOR_TEXT_PRIMARY)
         dest_lbl.pack(side="left", padx=(0, 8))
@@ -177,6 +183,18 @@ class BatchIngestionModal(ctk.CTkToplevel):
             command=self._on_browse_dest,
         )
         browse_dest_btn.pack(side="right")
+
+        # Smart Category Routing Checkbox
+        self.smart_var = ctk.BooleanVar(value=self.use_smart_folders)
+        self.smart_check = ctk.CTkCheckBox(
+            container,
+            text="Auto-sort batch items into Smart Category folders (Images, Videos, Documents, etc.)",
+            variable=self.smart_var,
+            font=get_caption_font(),
+            text_color=COLOR_TEXT_PRIMARY,
+            command=self._update_preview_from_text,
+        )
+        self.smart_check.pack(anchor="w", pady=(0, 14))
 
         # Footer Actions
         footer = ctk.CTkFrame(container, fg_color="transparent")
@@ -246,10 +264,12 @@ class BatchIngestionModal(ctk.CTkToplevel):
         if chosen:
             self.dest_entry.delete(0, "end")
             self.dest_entry.insert(0, chosen)
+            self._update_preview_from_text()
 
     def _update_preview_from_text(self) -> None:
         lines = self.text_box.get("1.0", "end").splitlines()
-        dest = self.dest_entry.get().strip() or self.default_dest
+        base_dest = self.dest_entry.get().strip() or self.default_dest
+        use_smart = self.smart_var.get()
         valid_items: List[QueueItem] = []
 
         for line in lines:
@@ -261,7 +281,15 @@ class BatchIngestionModal(ctk.CTkToplevel):
             if url.startswith("http://") or url.startswith("https://") or url.startswith("magnet:") or url.endswith(".torrent"):
                 fn = parts[1] if len(parts) >= 2 and parts[1] else None
                 ref = parts[2] if len(parts) >= 3 and parts[2] else None
-                valid_items.append(QueueItem(url=url, filename=fn, referer=ref, dest_dir=dest))
+                item_dest = str(
+                    resolve_download_folder(
+                        base_dest,
+                        name_or_url=fn or url,
+                        use_smart_folders=use_smart,
+                        smart_folder_name=self.smart_folder_name,
+                    )
+                )
+                valid_items.append(QueueItem(url=url, filename=fn, referer=ref, dest_dir=item_dest))
 
         self.parsed_items = valid_items
         count = len(valid_items)

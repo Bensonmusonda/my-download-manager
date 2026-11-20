@@ -118,8 +118,8 @@ def find_unfinished_downloads(dest_dir: str | Path) -> list[DownloadManifest]:
     manifests: list[DownloadManifest] = []
     seen_targets: set[Path] = set()
 
-    # 1. Scan for explicit .meta.json files
-    for meta_file in directory.glob("*.meta.json"):
+    # 1. Scan for explicit .meta.json files (including subdirectories like Smart Downloader)
+    for meta_file in directory.rglob("*.meta.json"):
         manifest = DownloadManifest.load(meta_file)
         if manifest:
             target = Path(manifest.target_file).resolve()
@@ -127,10 +127,10 @@ def find_unfinished_downloads(dest_dir: str | Path) -> list[DownloadManifest]:
             seen_targets.add(target)
 
     # 2. Scan for leftover .part or files with partial chunks
-    for chunk_file in directory.glob("*.part.chunk0"):
-        # Target is filename before .part.chunk0
+    for chunk_file in directory.rglob("*.part.chunk0"):
+        # Target is filename before .part.chunk0 in the same directory
         stem = chunk_file.name[:-12]  # strip '.part.chunk0'
-        target = directory / stem
+        target = (chunk_file.parent / stem).resolve()
         if target not in seen_targets:
             manifest = DownloadManifest(
                 target_file=str(target),

@@ -1,6 +1,6 @@
 ; Inno Setup Script for Smart Download Manager
 #define MyAppName "Smart Download Manager"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Benson Musonda"
 #define MyAppURL "https://github.com/Bensonmusonda/my-download-manager"
 #define MyAppExeName "SmartDownloadManager.exe"
@@ -18,7 +18,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=dist_release
-OutputBaseFilename=SmartDownloadManager-v1.1.0-Setup
+OutputBaseFilename=SmartDownloadManager-v1.2.0-Setup
 SetupIconFile=app_icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes

@@ -31,6 +31,7 @@ hiddenimports = [
     'win32gui',
     'win32con',
     'resvg_py',
+    'storage_manager',
     'ui',
     'ui.theme',
     'ui.icons',

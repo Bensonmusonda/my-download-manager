@@ -23,6 +23,7 @@ if sys.platform == "win32":
 
 from cli import run_cli
 from downloader import DEFAULT_NUM_CONNECTIONS, MULTI_CHUNK_MIN_SIZE
+from storage_manager import get_default_download_dir
 
 
 def main() -> None:
@@ -47,8 +48,8 @@ def main() -> None:
     )
     parser.add_argument(
         "-d", "--dest",
-        default="downloads",
-        help="Download destination directory (default: ./downloads)",
+        default=str(get_default_download_dir()),
+        help=f"Download destination directory (default: {get_default_download_dir()})",
     )
     parser.add_argument(
         "-c", "--connections",

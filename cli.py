@@ -50,10 +50,12 @@ from torrent_engine import (
     parse_magnet_display_name,
 )
 
+from storage_manager import get_default_download_dir
+
 log = logging.getLogger(__name__)
 console = Console()
 
-DEFAULT_DOWNLOAD_DIR = str(Path.cwd() / "downloads")
+DEFAULT_DOWNLOAD_DIR = str(get_default_download_dir())
 
 
 # ---------------------------------------------------------------------------

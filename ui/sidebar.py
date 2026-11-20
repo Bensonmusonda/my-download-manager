@@ -195,7 +195,7 @@ class NavigationSidebar(ctk.CTkFrame):
 
         version_badge = ctk.CTkLabel(
             text_frame,
-            text="v1.1.0 Pro",
+            text="v1.2.0 Pro",
             font=get_caption_font(),
             text_color=COLOR_TEXT_MUTED,
             anchor="w",

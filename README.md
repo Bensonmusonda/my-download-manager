@@ -16,6 +16,7 @@ The system includes a companion Manifest V3 browser extension, a concurrent back
 - **Concurrent Background Queue & Batch Ingestion**: Supports batch processing from plain text files (`urls.txt`) with configurable worker concurrency, automatic skipping of already-completed files, non-blocking failure recovery, and structured summary reporting.
 - **State Manifest Tracking**: Maintains download state in `.meta.json` manifests, allowing seamless resumption across process interruptions, network drops, and system restarts.
 - **BitTorrent & Magnet Link Engine**: Integrated high-performance BitTorrent client (`libtorrent` 2.x) supporting `.torrent` files and `magnet:?xt=urn:btih:...` URIs, non-blocking metadata downloads, DHT, PeX, LSD, and fastresume state persistence.
+- **Native Library & Smart File Categorization**: Defaults to the user's OS Downloads folder (`C:\Users\<user>\Downloads`). Optionally sorts incoming files into category directories (`Images`, `Videos`, `Documents`, `Audio`, `Archives`, `Programs`, `Torrents`, `Other`) inside a dedicated `Smart Downloader` directory.
 - **Dual Interface**: Offers a dark-mode Windows 11 style desktop GUI (CustomTkinter) and a command-line interface with streaming progress indicators (Rich).
 - **Pre-Built Windows Releases**: Ready-to-run Windows Installer (`.exe`), Portable ZIP bundle, and standalone binary with native file associations and protocol handlers.
 
@@ -27,8 +28,8 @@ Pre-compiled binary releases for Windows (x86_64) are published under [GitHub Re
 
 | Asset | Description |
 | :--- | :--- |
-| **`SmartDownloadManager-v1.1.0-Setup.exe`** | **Full Windows Installer**: Installs the desktop application, creates Start Menu & Desktop shortcuts, registers `.torrent` file association, and configures the `magnet:` protocol handler. |
-| **`SmartDownloadManager-v1.1.0-Windows-Portable.zip`** | **Portable Archive**: Zero-install standalone package. Extract anywhere and launch `SmartDownloadManager.exe` immediately. |
+| **`SmartDownloadManager-v1.2.0-Setup.exe`** | **Full Windows Installer**: Installs the desktop application, creates Start Menu & Desktop shortcuts, registers `.torrent` file association, and configures the `magnet:` protocol handler. |
+| **`SmartDownloadManager-v1.2.0-Windows-Portable.zip`** | **Portable Archive**: Zero-install standalone package. Extract anywhere and launch `SmartDownloadManager.exe` immediately. |
 | **`SmartDownloadManager.exe`** | **Standalone Executable**: Single application binary. |
 
 ---
@@ -47,6 +48,7 @@ smart_downloader/
 |-- downloader.py           Core download engine (TLS impersonation, chunking, stitching)
 |-- torrent_engine.py       BitTorrent & Magnet engine (libtorrent 2.x, DHT, PeX, fastresume)
 |-- queue_manager.py        Concurrent background task queue and protocol routing engine
+|-- storage_manager.py      OS Downloads resolution, file type categorizer, settings persistence
 |-- state.py                Download state manifest models and incomplete file scanner
 |-- gui.py                  CustomTkinter desktop graphical user interface
 |-- cli.py                  Interactive and batch command-line interface

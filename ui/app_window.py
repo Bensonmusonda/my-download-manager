@@ -38,6 +38,14 @@ from ui.modals.settings_modal import SettingsModal
 from ui.queue_view import QueueView
 from ui.recovery_view import RecoveryView
 from ui.sidebar import NavigationSidebar
+from storage_manager import (
+    get_default_download_dir,
+    load_settings,
+    save_settings,
+    resolve_download_folder,
+    get_file_category,
+    SMART_FOLDER_NAME,
+)
 from ui.theme import (
     COLOR_BG_CARD,
     COLOR_BG_WINDOW,
@@ -60,7 +68,7 @@ from ui.tray import WindowsSystemTray
 
 log = logging.getLogger(__name__)
 
-DEFAULT_DOWNLOAD_DIR = str(Path.cwd() / "downloads")
+DEFAULT_DOWNLOAD_DIR = str(get_default_download_dir())
 
 
 def _format_bytes(num_bytes: int) -> str:
@@ -89,16 +97,25 @@ class SmartDownloaderApp(ctk.CTk):
         self.minsize(MIN_WIDTH, MIN_HEIGHT)
         self.configure(fg_color=COLOR_BG_WINDOW)
 
-        self.dest_dir = default_dest
-        self.minimize_to_tray_pref: bool = True
+        # ── Load Persisted Application Preferences ───────────────────────
+        self.app_settings = load_settings()
+        persisted_dest = self.app_settings.get("dest_dir", DEFAULT_DOWNLOAD_DIR)
+        if default_dest and default_dest != DEFAULT_DOWNLOAD_DIR:
+            self.dest_dir = default_dest
+        else:
+            self.dest_dir = persisted_dest or DEFAULT_DOWNLOAD_DIR
+
+        self.use_smart_folders: bool = self.app_settings.get("use_smart_folders", True)
+        self.smart_folder_name: str = self.app_settings.get("smart_folder_name", SMART_FOLDER_NAME)
+        self.minimize_to_tray_pref: bool = self.app_settings.get("minimize_to_tray", True)
         self.remember_tray_pref: bool = False
         self.current_view_name = "queue"  # "queue" or "recovery"
 
         # ── Initialize Background Queue Manager ─────────────────────────
         self.queue_mgr = QueueManager(
             dest_dir=self.dest_dir,
-            max_concurrent=2,
-            num_connections=DEFAULT_NUM_CONNECTIONS,
+            max_concurrent=self.app_settings.get("max_concurrent", 2),
+            num_connections=self.app_settings.get("num_connections", DEFAULT_NUM_CONNECTIONS),
             min_chunk_size=MULTI_CHUNK_MIN_SIZE,
             on_item_updated=self._on_queue_item_updated_threadsafe,
             on_item_completed=self._on_queue_item_completed_threadsafe,
@@ -315,11 +332,17 @@ class SmartDownloaderApp(ctk.CTk):
 
     def _open_save_folder(self) -> None:
         dest = Path(self.dest_dir)
-        if dest.exists():
-            try:
-                os.startfile(str(dest))
-            except Exception:
-                pass
+        smart_path = dest / self.smart_folder_name
+        target = smart_path if (self.use_smart_folders and smart_path.exists()) else dest
+        target.mkdir(parents=True, exist_ok=True)
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(target))
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", str(target)])
+        except Exception:
+            pass
 
     # -----------------------------------------------------------------------
     # View Switching (Queue vs Recovery)
@@ -352,6 +375,8 @@ class SmartDownloaderApp(ctk.CTk):
             self,
             default_dest=self.dest_dir,
             on_add=self._handle_add_download,
+            use_smart_folders=self.use_smart_folders,
+            smart_folder_name=self.smart_folder_name,
         )
 
     def _handle_add_download(
@@ -384,7 +409,13 @@ class SmartDownloaderApp(ctk.CTk):
             filetypes=[("Torrent Files", "*.torrent"), ("All Files", "*.*")],
         )
         if chosen:
-            self.queue_mgr.add_item(url=chosen, dest_dir=self.dest_dir)
+            dest = resolve_download_folder(
+                self.dest_dir,
+                name_or_url=chosen,
+                use_smart_folders=self.use_smart_folders,
+                smart_folder_name=self.smart_folder_name,
+            )
+            self.queue_mgr.add_item(url=chosen, dest_dir=str(dest))
             self.queue_mgr.start()
             self._refresh_all_ui()
 
@@ -393,6 +424,8 @@ class SmartDownloaderApp(ctk.CTk):
             self,
             default_dest=self.dest_dir,
             on_import=self._handle_batch_import,
+            use_smart_folders=self.use_smart_folders,
+            smart_folder_name=self.smart_folder_name,
         )
 
     def _handle_batch_import(self, items: List[QueueItem], auto_start: bool) -> None:
@@ -429,6 +462,8 @@ class SmartDownloaderApp(ctk.CTk):
     def _open_settings_dialog(self) -> None:
         current_cfg = {
             "dest_dir": self.dest_dir,
+            "use_smart_folders": self.use_smart_folders,
+            "smart_folder_name": self.smart_folder_name,
             "max_concurrent": self.queue_mgr.max_concurrent,
             "num_connections": self.queue_mgr.num_connections,
             "minimize_to_tray": self.minimize_to_tray_pref,
@@ -441,11 +476,24 @@ class SmartDownloaderApp(ctk.CTk):
 
     def _handle_settings_save(self, new_cfg: dict) -> None:
         self.dest_dir = new_cfg.get("dest_dir", self.dest_dir)
+        self.use_smart_folders = new_cfg.get("use_smart_folders", self.use_smart_folders)
+        self.smart_folder_name = new_cfg.get("smart_folder_name", self.smart_folder_name)
         self.queue_mgr.dest_dir = self.dest_dir
         self.queue_mgr.max_concurrent = new_cfg.get("max_concurrent", self.queue_mgr.max_concurrent)
         self.queue_mgr.num_connections = new_cfg.get("num_connections", self.queue_mgr.num_connections)
         self.minimize_to_tray_pref = new_cfg.get("minimize_to_tray", True)
         self.toolbar.conc_menu.set(str(self.queue_mgr.max_concurrent))
+
+        # Persist to disk
+        save_settings({
+            "dest_dir": self.dest_dir,
+            "use_smart_folders": self.use_smart_folders,
+            "smart_folder_name": self.smart_folder_name,
+            "max_concurrent": self.queue_mgr.max_concurrent,
+            "num_connections": self.queue_mgr.num_connections,
+            "minimize_to_tray": self.minimize_to_tray_pref,
+        })
+
         self._refresh_all_ui()
 
     def _on_resume_unfinished_from_disk(self, target_path: Path) -> None:
@@ -627,7 +675,14 @@ class SmartDownloaderApp(ctk.CTk):
     def _handle_extension_download(self, url: str, filename: str, referer: str) -> None:
         if not url:
             return
-        dest = self.dest_dir
+        dest = str(
+            resolve_download_folder(
+                self.dest_dir,
+                name_or_url=filename or url,
+                use_smart_folders=self.use_smart_folders,
+                smart_folder_name=self.smart_folder_name,
+            )
+        )
         ref = referer or infer_referer(url)
         self.queue_mgr.add_item(url=url, filename=filename or None, referer=ref, dest_dir=dest)
         self.queue_mgr.start()
