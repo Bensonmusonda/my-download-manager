@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Smart Download Manager Bridge",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Bypasses Cloudflare by securely sharing cf_clearance cookies and download streams with Smart Download Manager.",
   "permissions": [
     "cookies",
@@ -18,6 +18,12 @@
   "background": {
     "service_worker": "background.js"
   },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "smart-download-manager@benson.dev",
+      "strict_min_version": "121.0"
+    }
+  },
   "action": {
     "default_title": "Smart Download Manager",
     "default_popup": "popup.html",
@@ -33,4 +39,3 @@
     "128": "icons/icon128.png"
   }
 }
-

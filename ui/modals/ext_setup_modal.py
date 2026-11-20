@@ -29,15 +29,15 @@ from ui.theme import (
 
 
 class ExtensionSetupModal(ctk.CTkToplevel):
-    """Step-by-step Chrome Extension setup dialog."""
+    """Step-by-step Browser Extension setup dialog for Chrome, Edge, and Firefox."""
 
     def __init__(self, parent: ctk.CTk):
         super().__init__(parent)
         self.parent = parent
 
-        self.title("Chrome Extension Setup Guide")
-        self.geometry("620x460")
-        self.minsize(560, 420)
+        self.title("Browser Extension Setup Guide")
+        self.geometry("640x510")
+        self.minsize(580, 460)
         self.transient(parent)
         self.configure(fg_color=COLOR_BG_WINDOW)
 
@@ -96,18 +96,20 @@ class ExtensionSetupModal(ctk.CTkToplevel):
         card.pack(fill="both", expand=True, pady=(0, 16))
 
         steps = [
-            "1. Open Chrome, Edge, or Brave and navigate to:",
-            "   chrome://extensions/  (or edge://extensions/)",
+            "Chromium (Chrome, Edge, Brave):",
+            "  1. Navigate to chrome://extensions/ (or edge://extensions/).",
+            "  2. Turn ON 'Developer mode' in the top-right corner.",
+            "  3. Click 'Load unpacked' and select the folder below.",
             "",
-            "2. Turn ON 'Developer mode' (toggle in top-right corner).",
+            "Mozilla Firefox:",
+            "  1. Navigate to about:debugging#/runtime/this-firefox",
+            "  2. Click 'Load Temporary Add-on...'",
+            "  3. Select the 'manifest.json' file inside the folder below.",
             "",
-            "3. Click the 'Load unpacked' button (top-left).",
+            f"Extension Directory:\n  {self.ext_folder}",
             "",
-            "4. Select the extension directory:",
-            f"   {self.ext_folder}",
-            "",
-            "5. Done! The extension automatically catches downloads and",
-            "   shares Cloudflare cf_clearance sessions on port 8992.",
+            "The extension automatically catches downloads and shares",
+            "Cloudflare cf_clearance cookies & Referers on port 8992.",
         ]
 
         text_content = "\n".join(steps)
