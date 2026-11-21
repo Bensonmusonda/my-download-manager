@@ -18,6 +18,7 @@ Features:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -320,6 +321,8 @@ class QueueManager:
         on_item_updated: Optional[Callable[[QueueItem], None]] = None,
         on_item_completed: Optional[Callable[[QueueItem], None]] = None,
         on_queue_completed: Optional[Callable[[BatchSummary], None]] = None,
+        state_file: Optional[Path | str] = None,
+        persist_state: bool = False,
     ):
         self.dest_dir = dest_dir
         self.max_concurrent = max(1, max_concurrent)
@@ -330,14 +333,128 @@ class QueueManager:
         self.on_item_completed = on_item_completed
         self.on_queue_completed = on_queue_completed
 
+        self.state_file = Path(state_file) if state_file else (Path(dest_dir) / ".queue_state.json")
+        self.persist_state = persist_state
+
         self.items: List[QueueItem] = []
         self._lock = threading.RLock()
+        self._save_lock = threading.Lock()
         self._is_running = False
         self._is_paused = False
         self._stop_event = threading.Event()
         self._coordinator_thread: Optional[threading.Thread] = None
         self._active_workers: Dict[str, threading.Thread] = {}
         self._start_time: float = 0.0
+
+        if self.persist_state:
+            self._load_state()
+
+    def _load_state(self) -> None:
+        """Restore persisted download tasks across application restarts."""
+        if not self.state_file.exists():
+            return
+        try:
+            with open(self.state_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                return
+            with self._lock:
+                for d in data:
+                    status_val = d.get("status", "paused")
+                    if status_val in ("active", "queued"):
+                        status_val = "paused"
+                    try:
+                        status_enum = QueueItemStatus(status_val)
+                    except ValueError:
+                        status_enum = QueueItemStatus.PAUSED
+
+                    item = QueueItem(
+                        url=d.get("url", ""),
+                        filename=d.get("filename"),
+                        referer=d.get("referer"),
+                        dest_dir=d.get("dest_dir", self.dest_dir),
+                        id=d.get("id", uuid.uuid4().hex[:8]),
+                        status=status_enum,
+                        downloaded_bytes=d.get("downloaded_bytes", 0),
+                        total_bytes=d.get("total_bytes"),
+                        created_at=d.get("created_at", time.time()),
+                        completed_at=d.get("completed_at"),
+                        error=d.get("error"),
+                    )
+                    if status_enum == QueueItemStatus.PAUSED:
+                        item.status_msg = "Paused · Ready to resume"
+                    elif status_enum == QueueItemStatus.COMPLETED:
+                        item.status_msg = "Complete"
+                    elif status_enum == QueueItemStatus.EXPIRED:
+                        item.status_msg = "Link Expired (403)"
+                    elif status_enum == QueueItemStatus.SKIPPED:
+                        item.status_msg = "Skipped"
+
+                    target_dir = Path(item.dest_dir)
+                    fname = item.filename or (filename_from_url(item.url) if item.url else "download")
+                    target = target_dir / fname
+                    item.target_path = target
+
+                    # Probe manifest on disk to sync accurate state
+                    meta_path = target.parent / f"{target.name}.meta.json"
+                    if meta_path.exists():
+                        try:
+                            mf = DownloadManifest.load(meta_path)
+                            if mf:
+                                if mf.latest_url:
+                                    item.url = mf.latest_url
+                                if mf.total_bytes:
+                                    item.total_bytes = mf.total_bytes
+                                if mf.downloaded_bytes:
+                                    item.downloaded_bytes = mf.downloaded_bytes
+                        except Exception:
+                            pass
+                    elif target.exists():
+                        item.downloaded_bytes = target.stat().st_size
+
+                    self.items.append(item)
+            log.info(f"Restored {len(self.items)} queue items from {self.state_file}")
+        except Exception as exc:
+            log.warning(f"Failed to load queue state from {self.state_file}: {exc}")
+
+    def save_state(self) -> None:
+        """Persist current queue tasks atomically to disk."""
+        if not self.persist_state:
+            return
+        with self._save_lock:
+            with self._lock:
+                data = []
+                for it in self.items:
+                    status_str = it.status.value
+                    if status_str in ("active", "queued"):
+                        status_str = "paused"
+                    data.append({
+                        "id": it.id,
+                        "url": it.url,
+                        "filename": it.filename,
+                        "referer": it.referer,
+                        "dest_dir": it.dest_dir,
+                        "status": status_str,
+                        "downloaded_bytes": it.downloaded_bytes,
+                        "total_bytes": it.total_bytes,
+                        "created_at": it.created_at,
+                        "completed_at": it.completed_at,
+                        "error": it.error,
+                    })
+            tmp_file = None
+            try:
+                self.state_file.parent.mkdir(parents=True, exist_ok=True)
+                tmp_file = self.state_file.with_name(f"{self.state_file.name}.{uuid.uuid4().hex[:6]}.tmp")
+                with open(tmp_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                tmp_file.replace(self.state_file)
+            except Exception as exc:
+                log.warning(f"Failed to save queue state to {self.state_file}: {exc}")
+                if tmp_file and tmp_file.exists():
+                    try:
+                        tmp_file.unlink()
+                    except Exception:
+                        pass
 
     # ── Queue Item Management ─────────────────────────────────────────
 
@@ -359,6 +476,7 @@ class QueueManager:
             self.items.append(item)
         log.info(f"Enqueued item: {item.display_name} [{item.id}]")
         self._notify_item_updated(item)
+        self.save_state()
         return item
 
     def add_items_from_file(
@@ -372,6 +490,7 @@ class QueueManager:
             self.items.extend(new_items)
         for item in new_items:
             self._notify_item_updated(item)
+        self.save_state()
         return new_items
 
     def get_item(self, item_id: str) -> Optional[QueueItem]:
@@ -392,11 +511,13 @@ class QueueManager:
                 item.status = QueueItemStatus.PAUSED
                 item.status_msg = "Paused"
                 self._notify_item_updated(item)
+                self.save_state()
                 return True
             elif item.status == QueueItemStatus.ACTIVE:
                 item.cancel_event.set()
                 item.status_msg = "Pausing..."
                 self._notify_item_updated(item)
+                self.save_state()
                 return True
         return False
 
@@ -413,6 +534,7 @@ class QueueManager:
             item.error = None
             item.cancel_event = threading.Event()
             self._notify_item_updated(item)
+            self.save_state()
         return True
 
     def update_item_url(self, item_id: str, fresh_url: str) -> bool:
@@ -428,6 +550,7 @@ class QueueManager:
             if item.status == QueueItemStatus.ACTIVE:
                 item.cancel_event.set()
             self.items = [it for it in self.items if it.id != item_id]
+            self.save_state()
         return True
 
     def clear_completed(self) -> None:
@@ -437,6 +560,7 @@ class QueueManager:
                 it for it in self.items
                 if it.status not in (QueueItemStatus.COMPLETED, QueueItemStatus.SKIPPED)
             ]
+            self.save_state()
 
     # ── Queue Lifecycle Controls ──────────────────────────────────────
 
@@ -477,6 +601,7 @@ class QueueManager:
             for item in self.items:
                 if item.status == QueueItemStatus.ACTIVE:
                     item.cancel_event.set()
+            self.save_state()
         log.info("QueueManager stopped.")
 
     @property
@@ -561,6 +686,7 @@ class QueueManager:
 
             # ── Protocol Routing: BitTorrent vs HTTP ───────────────────
             if is_torrent_source(item.url):
+                last_torrent_cb = 0.0
                 def torrent_progress_cb(
                     downloaded: int,
                     total: Optional[int],
@@ -569,6 +695,7 @@ class QueueManager:
                     peers: int = 0,
                     seeds: int = 0,
                 ):
+                    nonlocal last_torrent_cb
                     item.downloaded_bytes = downloaded
                     if total:
                         item.total_bytes = total
@@ -576,7 +703,10 @@ class QueueManager:
                     item.status_msg = msg
                     item.peers = peers
                     item.seeds = seeds
-                    self._notify_item_updated(item)
+                    now = time.time()
+                    if now - last_torrent_cb >= 0.12:
+                        last_torrent_cb = now
+                        self._notify_item_updated(item)
 
                 res = download_torrent(
                     source=item.url,
@@ -612,6 +742,7 @@ class QueueManager:
 
                 self._notify_item_updated(item)
                 self._notify_item_completed(item)
+                self.save_state()
                 return
 
             # ── Standard HTTP(S) Workflow ─────────────────────────────
@@ -653,16 +784,22 @@ class QueueManager:
                     item.completed_at = time.time()
                     self._notify_item_updated(item)
                     self._notify_item_completed(item)
+                    self.save_state()
                     return
 
             # 3. Setup progress callback
+            last_cb_time = 0.0
             def progress_cb(downloaded: int, total: Optional[int], speed: float, msg: str):
+                nonlocal last_cb_time
                 item.downloaded_bytes = downloaded
                 if total:
                     item.total_bytes = total
                 item.speed = speed
                 item.status_msg = msg
-                self._notify_item_updated(item)
+                now = time.time()
+                if now - last_cb_time >= 0.12:
+                    last_cb_time = now
+                    self._notify_item_updated(item)
 
             initial_bytes_on_disk = target_path.stat().st_size if target_path.exists() else 0
 
@@ -716,6 +853,7 @@ class QueueManager:
 
             self._notify_item_updated(item)
             self._notify_item_completed(item)
+            self.save_state()
 
         except Exception as exc:
             log.error(f"Unexpected worker failure for item {item.id}: {exc}", exc_info=True)
@@ -725,6 +863,7 @@ class QueueManager:
             item.completed_at = time.time()
             self._notify_item_updated(item)
             self._notify_item_completed(item)
+            self.save_state()
 
     # ── Notification Helpers ──────────────────────────────────────────
 

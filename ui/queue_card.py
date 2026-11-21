@@ -92,6 +92,13 @@ class QueueRowCard(ctk.CTkFrame):
         self.on_remove = on_remove
         self.on_delete_disk = on_delete_disk
         self.is_selected = False
+        self._rendered_status: Optional[QueueItemStatus] = None
+        self._cached_border_style = None
+        self._cached_name: Optional[str] = None
+        self._cached_pct: Optional[str] = None
+        self._cached_sz: Optional[str] = None
+        self._cached_telemetry: Optional[str] = None
+        self._cached_progress_color: Optional[str] = None
 
         self.pack_propagate(False)
         self._build_card()
@@ -189,6 +196,11 @@ class QueueRowCard(ctk.CTkFrame):
         self._build_action_buttons()
 
     def _build_action_buttons(self) -> None:
+        status = self.item.status
+        if status == self._rendered_status:
+            return
+        self._rendered_status = status
+
         for w in self.actions_frame.winfo_children():
             w.destroy()
 
@@ -285,62 +297,102 @@ class QueueRowCard(ctk.CTkFrame):
         self.item = item
 
         # Name truncation
-        self.name_lbl.configure(text=item.display_name)
+        name_txt = item.display_name
+        if self._cached_name != name_txt:
+            self._cached_name = name_txt
+            self.name_lbl.configure(text=name_txt)
 
         # Progress fraction & percentage
         fraction = item.progress_fraction
         self.progress_bar.set(fraction)
-        self.percent_lbl.configure(text=f"{fraction * 100:.1f}%")
+        pct_txt = f"{fraction * 100:.1f}%"
+        if self._cached_pct != pct_txt:
+            self._cached_pct = pct_txt
+            self.percent_lbl.configure(text=pct_txt)
 
         # Size metrics
-        self.size_lbl.configure(text=item.formatted_size)
+        sz_txt = item.formatted_size
+        if self._cached_sz != sz_txt:
+            self._cached_sz = sz_txt
+            self.size_lbl.configure(text=sz_txt)
 
         # State styling & telemetry
         status = item.status
 
         if status == QueueItemStatus.ACTIVE:
-            self.progress_bar.configure(progress_color=COLOR_PROGRESS_ACTIVE)
+            if self._cached_progress_color != COLOR_PROGRESS_ACTIVE:
+                self._cached_progress_color = COLOR_PROGRESS_ACTIVE
+                self.progress_bar.configure(progress_color=COLOR_PROGRESS_ACTIVE)
             if item.is_torrent_task:
                 telemetry = f"{item.formatted_speed} · {item.peers} peers · {item.seeds} seeds · {item.status_msg}"
             else:
                 eta_str = _format_time(self._calc_eta(item))
                 telemetry = f"{item.formatted_speed} · ETA: {eta_str} · Multi-connection active"
-            self.telemetry_lbl.configure(text=telemetry, text_color=COLOR_TEXT_PRIMARY)
+            if self._cached_telemetry != telemetry:
+                self._cached_telemetry = telemetry
+                self.telemetry_lbl.configure(text=telemetry, text_color=COLOR_TEXT_PRIMARY)
             self._set_border_style(is_expired=False)
 
         elif status == QueueItemStatus.COMPLETED:
-            self.progress_bar.configure(progress_color=COLOR_PROGRESS_DONE)
+            if self._cached_progress_color != COLOR_PROGRESS_DONE:
+                self._cached_progress_color = COLOR_PROGRESS_DONE
+                self.progress_bar.configure(progress_color=COLOR_PROGRESS_DONE)
             duration_str = f" in {int(item.completed_at - item.created_at)}s" if item.completed_at else ""
-            self.telemetry_lbl.configure(text=f"Downloaded{duration_str} · 100% Bit-for-bit verified", text_color=COLOR_SUCCESS)
+            telemetry = f"Downloaded{duration_str} · 100% Bit-for-bit verified"
+            if self._cached_telemetry != telemetry:
+                self._cached_telemetry = telemetry
+                self.telemetry_lbl.configure(text=telemetry, text_color=COLOR_SUCCESS)
             self._set_border_style(is_expired=False)
 
         elif status == QueueItemStatus.SKIPPED:
-            self.progress_bar.configure(progress_color=COLOR_PROGRESS_DONE)
-            self.telemetry_lbl.configure(text="Pre-existing file matched · Skipped", text_color=COLOR_WEB)
+            if self._cached_progress_color != COLOR_PROGRESS_DONE:
+                self._cached_progress_color = COLOR_PROGRESS_DONE
+                self.progress_bar.configure(progress_color=COLOR_PROGRESS_DONE)
+            telemetry = "Pre-existing file matched · Skipped"
+            if self._cached_telemetry != telemetry:
+                self._cached_telemetry = telemetry
+                self.telemetry_lbl.configure(text=telemetry, text_color=COLOR_WEB)
             self._set_border_style(is_expired=False)
 
         elif status == QueueItemStatus.EXPIRED:
-            self.progress_bar.configure(progress_color=COLOR_PROGRESS_EXPIRED)
-            self.telemetry_lbl.configure(
-                text=f"Signed link expired (HTTP 403) · {item.formatted_size.split('/')[0].strip()} preserved · Click Refresh Link",
-                text_color=COLOR_WARNING,
-            )
+            if self._cached_progress_color != COLOR_PROGRESS_EXPIRED:
+                self._cached_progress_color = COLOR_PROGRESS_EXPIRED
+                self.progress_bar.configure(progress_color=COLOR_PROGRESS_EXPIRED)
+            telemetry = f"Signed link expired (HTTP 403) · {item.formatted_size.split('/')[0].strip()} preserved · Click Refresh Link"
+            if self._cached_telemetry != telemetry:
+                self._cached_telemetry = telemetry
+                self.telemetry_lbl.configure(text=telemetry, text_color=COLOR_WARNING)
             self._set_border_style(is_expired=True)
 
         elif status == QueueItemStatus.PAUSED:
-            self.progress_bar.configure(progress_color=COLOR_PROGRESS_PAUSED)
-            self.telemetry_lbl.configure(text="Paused by user · Partial bytes preserved on disk", text_color=COLOR_TEXT_MUTED)
+            if self._cached_progress_color != COLOR_PROGRESS_PAUSED:
+                self._cached_progress_color = COLOR_PROGRESS_PAUSED
+                self.progress_bar.configure(progress_color=COLOR_PROGRESS_PAUSED)
+            telemetry = "Paused by user · Partial bytes preserved on disk"
+            if self._cached_telemetry != telemetry:
+                self._cached_telemetry = telemetry
+                self.telemetry_lbl.configure(text=telemetry, text_color=COLOR_TEXT_MUTED)
             self._set_border_style(is_expired=False)
 
         elif status == QueueItemStatus.FAILED:
-            self.progress_bar.configure(progress_color=COLOR_PROGRESS_ERROR)
+            if self._cached_progress_color != COLOR_PROGRESS_ERROR:
+                self._cached_progress_color = COLOR_PROGRESS_ERROR
+                self.progress_bar.configure(progress_color=COLOR_PROGRESS_ERROR)
             err_msg = item.error or "Download failed"
-            self.telemetry_lbl.configure(text=f"Error: {err_msg}", text_color=COLOR_ERROR)
+            telemetry = f"Error: {err_msg}"
+            if self._cached_telemetry != telemetry:
+                self._cached_telemetry = telemetry
+                self.telemetry_lbl.configure(text=telemetry, text_color=COLOR_ERROR)
             self._set_border_style(is_expired=False)
 
         elif status == QueueItemStatus.QUEUED:
-            self.progress_bar.configure(progress_color=COLOR_PROGRESS_PAUSED)
-            self.telemetry_lbl.configure(text="Waiting for available download slot...", text_color=COLOR_TEXT_DIM)
+            if self._cached_progress_color != COLOR_PROGRESS_PAUSED:
+                self._cached_progress_color = COLOR_PROGRESS_PAUSED
+                self.progress_bar.configure(progress_color=COLOR_PROGRESS_PAUSED)
+            telemetry = "Waiting for available download slot..."
+            if self._cached_telemetry != telemetry:
+                self._cached_telemetry = telemetry
+                self.telemetry_lbl.configure(text=telemetry, text_color=COLOR_TEXT_DIM)
             self._set_border_style(is_expired=False)
 
         self._build_action_buttons()
@@ -352,6 +404,10 @@ class QueueRowCard(ctk.CTkFrame):
         return remaining / item.speed
 
     def _set_border_style(self, is_expired: bool) -> None:
+        style_key = (self.is_selected, is_expired)
+        if getattr(self, "_cached_border_style", None) == style_key:
+            return
+        self._cached_border_style = style_key
         if self.is_selected:
             self.configure(fg_color=COLOR_BG_CARD_SELECTED, border_color=COLOR_BORDER_SELECTED, border_width=2)
         elif is_expired:

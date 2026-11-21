@@ -58,6 +58,7 @@ class QueueView(ctk.CTkFrame):
         self.active_category: str = "all"
         self.search_query: str = ""
         self.all_items: List[QueueItem] = []
+        self._has_initial_filter: bool = False
 
         self._build_ui()
 
@@ -147,6 +148,7 @@ class QueueView(ctk.CTkFrame):
     def update_items(self, items: List[QueueItem]) -> None:
         self.all_items = items
         current_ids = {it.id for it in items}
+        structure_changed = False
 
         # Remove cards that no longer exist
         for item_id in list(self.cards.keys()):
@@ -154,6 +156,7 @@ class QueueView(ctk.CTkFrame):
                 card = self.cards.pop(item_id)
                 self.selected_ids.discard(item_id)
                 card.destroy()
+                structure_changed = True
 
         # Update or create cards
         for it in items:
@@ -171,9 +174,19 @@ class QueueView(ctk.CTkFrame):
                     on_delete_disk=self.on_delete_disk,
                 )
                 self.cards[it.id] = card
+                structure_changed = True
 
-        self._refilter_cards()
+        if structure_changed or not self._has_initial_filter:
+            self._has_initial_filter = True
+            self._refilter_cards()
         self._update_stats_badge()
+
+    def update_single_item(self, item: QueueItem) -> None:
+        """Targeted update for one QueueItem telemetry without re-evaluating all cards."""
+        card = self.cards.get(item.id)
+        if card:
+            card.update_data(item)
+            self._update_stats_badge()
 
     def _matches_filter(self, item: QueueItem) -> bool:
         # Search query match

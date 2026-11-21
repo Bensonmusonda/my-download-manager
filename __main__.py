@@ -18,6 +18,7 @@ if sys.platform == "win32":
         if ctypes.windll.kernel32.AttachConsole(-1):
             sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
             sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+            sys.stdin = open("CONIN$", "r", encoding="utf-8", errors="replace")
     except Exception:
         pass
 

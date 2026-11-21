@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -29,6 +30,7 @@ from queue_manager import (
     QueueItemStatus,
     QueueManager,
 )
+from state import DownloadManifest
 from ui.icons import get_icon
 from ui.modals.add_modal import AddDownloadModal
 from ui.modals.batch_modal import BatchIngestionModal
@@ -111,6 +113,12 @@ class SmartDownloaderApp(ctk.CTk):
         self.remember_tray_pref: bool = False
         self.current_view_name = "queue"  # "queue" or "recovery"
 
+        # UI Snappiness and debounce state
+        self._refresh_pending: bool = False
+        self._last_disk_check: float = 0.0
+        self._cached_storage_str: str = ""
+        self._cached_speed_metrics: str = ""
+
         # ── Initialize Background Queue Manager ─────────────────────────
         self.queue_mgr = QueueManager(
             dest_dir=self.dest_dir,
@@ -120,6 +128,8 @@ class SmartDownloaderApp(ctk.CTk):
             on_item_updated=self._on_queue_item_updated_threadsafe,
             on_item_completed=self._on_queue_item_completed_threadsafe,
             on_queue_completed=self._on_queue_batch_completed_threadsafe,
+            state_file=Path.home() / ".smart_download_manager" / "queue_state.json",
+            persist_state=True,
         )
 
         # ── Build Shell Layout ──────────────────────────────────────────
@@ -516,8 +526,37 @@ class SmartDownloaderApp(ctk.CTk):
         self._refresh_all_ui()
 
     def _on_resume_unfinished_from_disk(self, target_path: Path) -> None:
-        # Prompt for fresh URL to resume unfinished file
-        temp_item = QueueItem(
+        # Load manifest to check if original/latest URL is already saved
+        meta_file = target_path.parent / f"{target_path.name}.meta.json"
+        manifest = DownloadManifest.load(meta_file) if meta_file.exists() else None
+        saved_url = (manifest.latest_url or manifest.original_url) if manifest else ""
+
+        # Check if item is already in queue
+        existing_item = next(
+            (it for it in self.queue_mgr.items if it.target_path and it.target_path.resolve() == target_path.resolve()),
+            None,
+        )
+
+        if saved_url:
+            # Assume URL is still valid and attempt HTTP Range resumption directly
+            if existing_item:
+                self.queue_mgr.resume_item(existing_item.id)
+            else:
+                new_item = self.queue_mgr.add_item(
+                    url=saved_url,
+                    filename=target_path.name,
+                    dest_dir=str(target_path.parent),
+                )
+                if manifest:
+                    new_item.downloaded_bytes = manifest.downloaded_bytes
+                    new_item.total_bytes = manifest.total_bytes
+            self.queue_mgr.start()
+            self._on_sidebar_filter_changed("all")
+            self._refresh_all_ui()
+            return
+
+        # No saved URL on disk; prompt user for fresh URL
+        temp_item = existing_item or QueueItem(
             url="",
             filename=target_path.name,
             dest_dir=str(target_path.parent),
@@ -602,7 +641,15 @@ class SmartDownloaderApp(ctk.CTk):
     # -----------------------------------------------------------------------
 
     def _on_queue_item_updated_threadsafe(self, item: QueueItem) -> None:
-        self.after(0, self._refresh_all_ui)
+        if not self._refresh_pending:
+            self._refresh_pending = True
+            self.after(120, self._do_debounced_refresh)
+        # Targeted update directly on UI thread for live responsiveness
+        self.after(0, lambda it=item: self.queue_view.update_single_item(it))
+
+    def _do_debounced_refresh(self) -> None:
+        self._refresh_pending = False
+        self._refresh_all_ui()
 
     def _on_queue_item_completed_threadsafe(self, item: QueueItem) -> None:
         self.after(0, self._refresh_all_ui)
@@ -612,17 +659,52 @@ class SmartDownloaderApp(ctk.CTk):
 
     def _handle_batch_summary(self, summary: BatchSummary) -> None:
         self._refresh_all_ui()
-        if summary.total_items > 1:
-            msg = (
-                f"Batch Complete!\n\n"
-                f"• Total: {summary.total_items}\n"
-                f"• Completed: {summary.completed}\n"
-                f"• Skipped: {summary.skipped}\n"
-                f"• Expired (403): {summary.expired}\n"
-                f"• Failed: {summary.failed}\n"
-                f"• Total Downloaded: {_format_bytes(summary.total_bytes_downloaded)}"
+
+        # Display non-intrusive status bar summary instead of blocking messagebox
+        summary_msg = f"Batch complete: {summary.completed}/{summary.total_items} finished"
+        if summary.expired > 0:
+            summary_msg += f", {summary.expired} expired"
+        if summary.failed > 0:
+            summary_msg += f", {summary.failed} failed"
+        summary_msg += f" ({_format_bytes(summary.total_bytes_downloaded)})"
+
+        self.speed_metrics_lbl.configure(text=f"✅ {summary_msg}")
+
+        # Respect user on_complete_action preference
+        action = self.app_settings.get("on_complete_action", "notify")
+        if action == "notify":
+            if self.tray:
+                self.tray.show_notification(
+                    "Smart Download Manager",
+                    f"Batch complete: {summary.completed}/{summary.total_items} downloads finished ({_format_bytes(summary.total_bytes_downloaded)}).",
+                )
+        elif action == "open_folder":
+            try:
+                os.startfile(self.dest_dir)
+            except Exception:
+                pass
+        elif action == "open_file":
+            completed_item = next(
+                (it for it in reversed(summary.items) if it.status == QueueItemStatus.COMPLETED and it.target_path and it.target_path.exists()),
+                None,
             )
-            messagebox.showinfo("Batch Summary", msg, parent=self)
+            if completed_item and completed_item.target_path:
+                try:
+                    os.startfile(str(completed_item.target_path))
+                except Exception:
+                    pass
+            else:
+                try:
+                    os.startfile(self.dest_dir)
+                except Exception:
+                    pass
+        elif action == "chime":
+            if sys.platform == "win32":
+                try:
+                    import winsound
+                    winsound.MessageBeep(winsound.MB_OK)
+                except Exception:
+                    pass
 
     def _schedule_telemetry_tick(self) -> None:
         self._update_status_bar_telemetry()
@@ -705,21 +787,28 @@ class SmartDownloaderApp(ctk.CTk):
         else:
             dl_str = "0 B/s"
 
-        self.speed_metrics_lbl.configure(text=f"{active_count} Active Tasks · {dl_str}")
+        metrics_txt = f"{active_count} Active Tasks · {dl_str}"
+        if self._cached_speed_metrics != metrics_txt:
+            self._cached_speed_metrics = metrics_txt
+            self.speed_metrics_lbl.configure(text=metrics_txt)
 
         # Tray tooltip update
         if self.tray:
             tray_text = f"Smart Downloader: {active_count} active ({dl_str})" if active_count > 0 else "Smart Download Manager: Idle"
             self.tray.update_tooltip(tray_text)
 
-        # Storage telemetry
-        try:
-            usage = shutil.disk_usage(self.dest_dir)
-            free_str = _format_bytes(usage.free)
-            dest_short = self.dest_dir if len(self.dest_dir) < 32 else f"...{self.dest_dir[-28:]}"
-            self.storage_lbl.configure(text=f"💾 {free_str} Free · {dest_short}")
-        except Exception:
-            self.storage_lbl.configure(text=f"💾 {self.dest_dir}")
+        # Storage telemetry (cached to prevent synchronous disk I/O on UI thread every tick)
+        now = time.time()
+        if now - self._last_disk_check >= 5.0 or not self._cached_storage_str:
+            self._last_disk_check = now
+            try:
+                usage = shutil.disk_usage(self.dest_dir)
+                free_str = _format_bytes(usage.free)
+                dest_short = self.dest_dir if len(self.dest_dir) < 32 else f"...{self.dest_dir[-28:]}"
+                self._cached_storage_str = f"💾 {free_str} Free · {dest_short}"
+            except Exception:
+                self._cached_storage_str = f"💾 {self.dest_dir}"
+        self.storage_lbl.configure(text=self._cached_storage_str)
 
     # -----------------------------------------------------------------------
     # Chrome Extension Bridge Handlers

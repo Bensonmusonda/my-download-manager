@@ -163,10 +163,14 @@ class RecoveryView(ctk.CTkFrame):
             )
             status_lbl.pack(side="left")
 
+            has_url = bool(item.latest_url or item.original_url)
+            btn_text = " Resume Download" if has_url else " Provide URL & Resume"
+            btn_icon = get_icon("play" if has_url else "refresh", COLOR_TEXT_PRIMARY, (13, 13))
+
             resume_btn = ctk.CTkButton(
                 card,
-                text=" Update URL & Resume",
-                image=get_icon("refresh", COLOR_TEXT_PRIMARY, (13, 13)),
+                text=btn_text,
+                image=btn_icon,
                 compound="left",
                 font=get_caption_font(),
                 width=160,

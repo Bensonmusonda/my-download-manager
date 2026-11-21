@@ -28,7 +28,7 @@ from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
 
-CURRENT_VERSION = "1.3.0"
+CURRENT_VERSION = "1.3.1"
 REPO = "Bensonmusonda/my-download-manager"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 

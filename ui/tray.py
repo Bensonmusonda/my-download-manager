@@ -205,6 +205,28 @@ class WindowsSystemTray:
         except Exception:
             pass
 
+    def show_notification(self, title: str, text: str) -> None:
+        """Show Windows balloon notification in system tray."""
+        if not self._is_active or not self.hwnd:
+            return
+        try:
+            import win32gui
+            nid = (
+                self.hwnd,
+                0,
+                win32gui.NIF_INFO,
+                WM_TRAY_MSG,
+                self._hicon,
+                "",
+                text[:255],
+                200,
+                title[:63],
+                win32gui.NIIF_INFO,
+            )
+            win32gui.Shell_NotifyIcon(win32gui.NIM_MODIFY, nid)
+        except Exception as exc:
+            log.debug(f"Tray show_notification error: {exc}")
+
     def stop(self) -> None:
         """Remove icon from notification area and terminate tray message loop."""
         if not self._is_active or not self.hwnd:

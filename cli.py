@@ -58,6 +58,19 @@ console = Console()
 DEFAULT_DOWNLOAD_DIR = str(get_default_download_dir())
 
 
+def safe_input(prompt: str = "") -> str:
+    """Safe wrapper around input() preventing RuntimeError: lost sys.stdin on Windows GUI builds."""
+    if sys.stdin is None or getattr(sys.stdin, "closed", False):
+        if sys.platform == "win32":
+            try:
+                sys.stdin = open("CONIN$", "r", encoding="utf-8", errors="replace")
+            except Exception:
+                raise RuntimeError("Interactive console input is not available (sys.stdin unavailable).")
+        else:
+            raise RuntimeError("Interactive console input is not available (sys.stdin unavailable).")
+    return input(prompt)
+
+
 # ---------------------------------------------------------------------------
 # Pretty-printing helpers
 # ---------------------------------------------------------------------------
@@ -130,7 +143,7 @@ def _handle_expired(
     while True:
         try:
             console.print("[bold yellow]Link expired. Paste a fresh URL to resume (or press Enter to skip):[/] ", end="")
-            fresh_url = input().strip()
+            fresh_url = safe_input().strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]Skipped. Download state saved.[/]")
             return
@@ -215,14 +228,14 @@ def _update_url_for_existing(
                 "Select a file number from above, enter [bold]C[/] to specify a custom path, "
                 "or [bold]B[/] to go back:"
             )
-            choice = input("  ➤  ").strip()
+            choice = safe_input("  ➤  ").strip()
             if choice.lower() in ("b", "back", ""):
                 return
             if choice.isdigit() and 1 <= int(choice) <= len(unfinished):
                 target_path = Path(unfinished[int(choice) - 1].target_file)
             elif choice.lower() == "c":
                 console.print("Enter full path or filename of unfinished file:")
-                custom = input("  ➤  ").strip()
+                custom = safe_input("  ➤  ").strip()
                 if not custom:
                     return
                 target_path = Path(custom).resolve()
@@ -231,7 +244,7 @@ def _update_url_for_existing(
         else:
             console.print("[dim]No unfinished tasks found in downloads directory.[/]")
             console.print("Enter the path or filename of the unfinished file (or press Enter to cancel):")
-            custom = input("  ➤  ").strip()
+            custom = safe_input("  ➤  ").strip()
             if not custom:
                 return
             target_path = Path(dest_dir).resolve() / custom if not Path(custom).is_absolute() else Path(custom)
@@ -253,11 +266,27 @@ def _update_url_for_existing(
         f"({current_size / (1024*1024):.2f} MB)"
     )
 
-    console.print("[bold]Paste the fresh download URL (or press Enter to cancel):[/]")
-    try:
-        fresh_url = input("  ➤  ").strip()
-    except (EOFError, KeyboardInterrupt):
-        return
+    manifest = DownloadManifest.load(target_path.parent / f"{target_path.name}.meta.json")
+    existing_url = (manifest.latest_url or manifest.original_url) if manifest else ""
+
+    if existing_url:
+        console.print(f"[bold cyan]Saved URL:[/] [dim]{existing_url}[/]")
+        console.print("[bold]Press Enter to resume directly with saved URL, paste a fresh URL, or 'q' to cancel:[/]")
+        try:
+            fresh_url = safe_input("  ➤  ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if fresh_url.lower() == "q":
+            console.print("[dim]Cancelled.[/]")
+            return
+        if not fresh_url:
+            fresh_url = existing_url
+    else:
+        console.print("[bold]Paste the fresh download URL (or press Enter to cancel):[/]")
+        try:
+            fresh_url = safe_input("  ➤  ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
 
     if not fresh_url:
         console.print("[dim]Cancelled.[/]")
@@ -540,7 +569,7 @@ def run_cli(
             console.print("  [bold red]4.[/] Exit (or q)")
 
             try:
-                choice = input("\n  ➤ Choice [1]: ").strip()
+                choice = safe_input("\n  ➤ Choice [1]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 console.print("\n[dim]Goodbye! 👋[/]")
                 break
@@ -552,12 +581,12 @@ def run_cli(
             if choice == "2":
                 console.print("\nEnter path to URLs file [urls.txt]: ", end="")
                 try:
-                    f_input = input().strip() or "urls.txt"
+                    f_input = safe_input().strip() or "urls.txt"
                 except (EOFError, KeyboardInterrupt):
                     continue
                 console.print("Enter maximum concurrent downloads [2]: ", end="")
                 try:
-                    c_input = input().strip() or str(max_concurrent)
+                    c_input = safe_input().strip() or str(max_concurrent)
                     conc = int(c_input)
                 except (ValueError, EOFError, KeyboardInterrupt):
                     conc = 2
@@ -580,7 +609,7 @@ def run_cli(
 
             console.print("\n[bold]Enter download URL, magnet URI, or .torrent path[/] (or press Enter to go back):")
             try:
-                url = input("  ➤  ").strip()
+                url = safe_input("  ➤  ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
 
