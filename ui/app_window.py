@@ -268,7 +268,8 @@ class SmartDownloaderApp(ctk.CTk):
         )
         self.bridge_indicator_btn.pack(side="left")
 
-        # Right: Update indicator (clickable → Settings › Updates tab)
+        # Right: Update indicator (clickable → Software Update modal or Settings › Updates)
+        self._latest_update_info = None
         self.update_indicator_btn = ctk.CTkButton(
             inner,
             text="",
@@ -277,7 +278,7 @@ class SmartDownloaderApp(ctk.CTk):
             fg_color="transparent",
             hover_color="#334155",
             height=22,
-            command=self._open_settings_dialog,
+            command=self._on_click_update_indicator,
         )
         self.update_indicator_btn.pack(side="right", padx=(0, 8))
 
@@ -740,6 +741,7 @@ class SmartDownloaderApp(ctk.CTk):
     def _on_startup_update_result(self, info) -> None:
         """Called on main thread after startup update check completes."""
         try:
+            self._latest_update_info = info
             if info is not None:
                 self.update_indicator_btn.configure(
                     text=f"  🆕  v{info.remote_version} available",
@@ -747,6 +749,31 @@ class SmartDownloaderApp(ctk.CTk):
                 )
             else:
                 self.update_indicator_btn.configure(text="")
+        except Exception:
+            pass
+
+    def _on_click_update_indicator(self) -> None:
+        """Open the interactive UpdateModal if an update was found, otherwise open Settings."""
+        if getattr(self, "_latest_update_info", None) is not None:
+            from ui.modals.update_modal import UpdateModal
+            UpdateModal(self, self._latest_update_info, before_restart_cb=self.prepare_for_update)
+        else:
+            self._open_settings_dialog()
+
+    def prepare_for_update(self) -> None:
+        """Gracefully stop queue and cleanup background services prior to update restart."""
+        try:
+            self.queue_mgr.stop()
+        except Exception as exc:
+            log.warning(f"Error stopping queue manager: {exc}")
+        try:
+            if self.bridge:
+                self.bridge.stop()
+        except Exception:
+            pass
+        try:
+            if self.tray:
+                self.tray.stop()
         except Exception:
             pass
 

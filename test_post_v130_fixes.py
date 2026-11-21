@@ -229,3 +229,124 @@ def test_queue_card_rendering_cache():
 
     assert not card.actions_frame.winfo_children.called
     assert not card.configure.called
+
+
+# ── Test 7: Update Preferred Asset Selection ──────────────────────────────
+
+def test_update_asset_selection():
+    from updater import ReleaseAsset, UpdateInfo
+
+    assets = [
+        ReleaseAsset(
+            name="SmartDownloadManager-v1.3.1-Setup.exe",
+            download_url="https://example.com/setup.exe",
+            size=40000000,
+            content_type="application/octet-stream",
+        ),
+        ReleaseAsset(
+            name="SmartDownloadManager-v1.3.1-Windows-Portable.zip",
+            download_url="https://example.com/portable.zip",
+            size=42000000,
+            content_type="application/zip",
+        ),
+        ReleaseAsset(
+            name="SmartDownloadManager.exe",
+            download_url="https://example.com/standalone.exe",
+            size=39000000,
+            content_type="application/octet-stream",
+        ),
+    ]
+
+    info = UpdateInfo(
+        remote_version="1.3.1",
+        tag_name="v1.3.1",
+        release_notes="Bug fixes",
+        html_url="https://github.com/...",
+        published_at="2026-11-21",
+        assets=assets,
+    )
+
+    # Installed or default environment prefers setup installer
+    installer_asset = info.get_asset("installer")
+    assert installer_asset is not None
+    assert "setup" in installer_asset.name.lower()
+
+    # Portable matches zip
+    portable_asset = info.get_asset("portable")
+    assert portable_asset is not None
+    assert portable_asset.name.endswith(".zip")
+
+    # Standalone matches exe without setup
+    standalone_asset = info.get_asset("standalone")
+    assert standalone_asset is not None
+    assert standalone_asset.name == "SmartDownloadManager.exe"
+
+
+# ── Test 8: Update Download & Apply Execution ─────────────────────────────
+
+def test_update_download_and_apply():
+    from updater import UpdateChecker
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Create a mock remote response containing dummy binary bytes
+        dummy_data = b"MOCK_NEW_EXE_BINARY_DATA_1234567890"
+
+        class MockResponse:
+            def __init__(self):
+                self.headers = {"Content-Length": str(len(dummy_data))}
+                self.bio = io.BytesIO(dummy_data)
+
+            def read(self, amt=-1):
+                return self.bio.read(amt)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        progress_calls = []
+        before_restart_called = False
+
+        def _mock_progress(frac, dl, tot):
+            progress_calls.append((frac, dl, tot))
+
+        def _mock_before_restart():
+            nonlocal before_restart_called
+            before_restart_called = True
+
+        mock_resp = MockResponse()
+
+        with patch("tempfile.gettempdir", return_value=tmp_dir), \
+             patch("urllib.request.urlopen", return_value=mock_resp), \
+             patch("subprocess.Popen") as mock_popen, \
+             patch("os._exit") as mock_exit:
+
+            success = UpdateChecker.download_and_apply_update(
+                download_url="https://example.com/test-setup.exe",
+                progress_cb=_mock_progress,
+                asset_name="SmartDownloadManager-v1.3.1-Setup.exe",
+                before_restart_cb=_mock_before_restart,
+            )
+
+            assert success is True
+            assert before_restart_called is True
+            assert len(progress_calls) > 0
+            assert progress_calls[-1][0] == 1.0  # 100%
+
+            # Check that update asset was written
+            saved_file = Path(tmp_dir) / "SDM_Update" / "SmartDownloadManager-v1.3.1-Setup.exe"
+            assert saved_file.exists()
+            assert saved_file.read_bytes() == dummy_data
+
+            # Check that batch script was generated
+            bat_file = Path(tmp_dir) / "SDM_Update" / "apply_update.bat"
+            assert bat_file.exists()
+            content = bat_file.read_text(encoding="utf-8")
+            assert "/SILENT" in content
+            assert "/CLOSEAPPLICATIONS" in content
+
+            # Verify detached process was launched and process exited
+            assert mock_popen.called
+            assert mock_exit.called
+

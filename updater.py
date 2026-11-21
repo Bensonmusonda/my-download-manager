@@ -80,6 +80,19 @@ class UpdateInfo:
                     return asset
         return None
 
+    def get_preferred_asset(self) -> Optional[ReleaseAsset]:
+        """Automatically select the best asset based on current runtime environment."""
+        is_frozen = getattr(sys, "frozen", False)
+        current_exe = Path(sys.executable).resolve()
+        is_installed = is_frozen and (current_exe.parent / "unins000.exe").exists()
+
+        if is_frozen and not is_installed:
+            standalone = self.get_asset("standalone")
+            if standalone:
+                return standalone
+
+        return self.get_asset("installer") or self.get_asset("standalone") or (self.assets[0] if self.assets else None)
+
 
 # ---------------------------------------------------------------------------
 # Version Comparison
@@ -184,17 +197,35 @@ class UpdateChecker:
     def download_and_apply_update(
         cls,
         download_url: str,
-        progress_cb: Optional[Callable[[float], None]] = None,
+        progress_cb: Optional[Callable[..., None]] = None,
         asset_name: str = "SmartDownloadManager-Update.exe",
+        before_restart_cb: Optional[Callable[[], None]] = None,
     ) -> bool:
         """
         Download the update asset to %TEMP%\\SDM_Update\\ and launch it.
 
-        For *Setup.exe assets: launches with /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS
-        For *.zip (portable):  opens the containing folder so the user can extract manually.
+        For *Setup.exe assets: launches silently with /SILENT /CLOSEAPPLICATIONS and restarts the app.
+        For standalone .exe:  waits for process exit, overwrites executable, and restarts.
+        For *.zip (portable): opens the containing folder so the user can extract manually.
 
         Returns True on success, False on failure.
         """
+        def _report(frac: float, dl: int, tot: int) -> None:
+            if not progress_cb:
+                return
+            try:
+                import inspect
+                sig = inspect.signature(progress_cb)
+                if len(sig.parameters) >= 3:
+                    progress_cb(frac, dl, tot)
+                else:
+                    progress_cb(frac)
+            except Exception:
+                try:
+                    progress_cb(frac)
+                except Exception:
+                    pass
+
         try:
             import urllib.request
 
@@ -204,8 +235,12 @@ class UpdateChecker:
 
             log.info(f"Downloading update asset: {download_url} → {dest_path}")
 
-            # Stream download with progress
-            with urllib.request.urlopen(download_url, timeout=60) as resp:
+            # Stream download with progress reporting
+            req = urllib.request.Request(
+                download_url,
+                headers={"User-Agent": f"SmartDownloadManager/{CURRENT_VERSION}"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 total = int(resp.headers.get("Content-Length", 0))
                 downloaded = 0
                 chunk_size = 65536
@@ -216,26 +251,69 @@ class UpdateChecker:
                             break
                         f.write(chunk)
                         downloaded += len(chunk)
-                        if progress_cb and total:
-                            progress_cb(downloaded / total)
+                        if total > 0:
+                            _report(downloaded / total, downloaded, total)
 
-            if progress_cb:
-                progress_cb(1.0)
-
+            _report(1.0, downloaded, total)
             log.info(f"Update asset saved to: {dest_path}")
 
-            if asset_name.lower().endswith(".exe"):
-                # Inno Setup installer – silent install, restart app
-                args = [str(dest_path), "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"]
-                subprocess.Popen(args, shell=False)
-                log.info("Installer launched. Exiting current process.")
-                # Give the installer a moment to start, then quit
-                time.sleep(1.5)
-                sys.exit(0)
-            else:
+            # Run graceful shutdown hook (e.g. stop downloads, save queue state, stop tray/bridge)
+            if before_restart_cb:
+                try:
+                    before_restart_cb()
+                except Exception as exc:
+                    log.warning(f"before_restart_cb error: {exc}")
+
+            is_windows = sys.platform == "win32"
+            is_frozen = getattr(sys, "frozen", False)
+            current_exe = Path(sys.executable).resolve()
+            asset_lower = asset_name.lower()
+
+            if is_windows and asset_lower.endswith(".exe"):
+                bat_path = tmp_dir / "apply_update.bat"
+                is_setup = "setup" in asset_lower
+
+                if is_setup:
+                    # Inno Setup installer:
+                    # Run silent setup, then relaunch application
+                    bat_content = (
+                        "@echo off\r\n"
+                        "echo Updating Smart Download Manager...\r\n"
+                        f'start /wait "" "{dest_path}" /SILENT /CLOSEAPPLICATIONS\r\n'
+                    )
+                    if is_frozen:
+                        bat_content += f'start "" "{current_exe}"\r\n'
+                    bat_content += "exit\r\n"
+                else:
+                    # Standalone executable:
+                    # Wait for process exit to release file lock, overwrite, and relaunch
+                    bat_content = (
+                        "@echo off\r\n"
+                        "echo Updating Smart Download Manager standalone...\r\n"
+                        "timeout /t 2 /nobreak > nul\r\n"
+                        f'move /y "{dest_path}" "{current_exe}"\r\n'
+                    )
+                    if is_frozen:
+                        bat_content += f'start "" "{current_exe}"\r\n'
+                    bat_content += "exit\r\n"
+
+                bat_path.write_text(bat_content, encoding="utf-8")
+
+                # Launch batch script in detached process
+                DETACHED_FLAGS = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                subprocess.Popen(
+                    ["cmd.exe", "/c", str(bat_path)],
+                    creationflags=DETACHED_FLAGS,
+                    close_fds=True,
+                )
+                log.info("Update batch script launched. Terminating current process.")
+                time.sleep(0.5)
+                os._exit(0)
+            elif is_windows and asset_lower.endswith(".zip"):
                 # Portable ZIP – open folder for manual extraction
-                if sys.platform == "win32":
-                    os.startfile(str(tmp_dir))
+                os.startfile(str(tmp_dir))
+            else:
+                log.info(f"Update asset ready at: {dest_path}")
 
             return True
 

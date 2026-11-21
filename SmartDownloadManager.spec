@@ -48,6 +48,7 @@ hiddenimports = [
     'ui.modals.batch_modal',
     'ui.modals.ext_setup_modal',
     'ui.modals.settings_modal',
+    'ui.modals.update_modal',
     'updater',
 ]
 

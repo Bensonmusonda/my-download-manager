@@ -966,19 +966,10 @@ class SettingsModal(ctk.CTkToplevel):
             self._show_update_available_dialog(info)
 
     def _show_update_available_dialog(self, info) -> None:
-        """Show a simple messagebox; a richer modal can be added in a later sprint."""
-        from updater import CURRENT_VERSION
-        notes_preview = (info.release_notes or "")[:800]
-        msg = (
-            f"A new version is available!\n\n"
-            f"  Current:  v{CURRENT_VERSION}\n"
-            f"  Latest:   v{info.remote_version}\n\n"
-            f"Release notes:\n{notes_preview}\n\n"
-            "Open the GitHub release page to download?"
-        )
-        ans = messagebox.askyesno("Update Available", msg, parent=self)
-        if ans:
-            webbrowser.open(info.html_url)
+        """Open the interactive UpdateModal for in-app download and restart."""
+        from ui.modals.update_modal import UpdateModal
+        before_cb = getattr(self.parent, "prepare_for_update", None)
+        UpdateModal(self, info, before_restart_cb=before_cb)
 
     # -----------------------------------------------------------------------
     # Save
