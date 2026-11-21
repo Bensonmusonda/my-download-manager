@@ -150,6 +150,9 @@ class SmartDownloaderApp(ctk.CTk):
         # ── Start Telemetry Periodic Loop ───────────────────────────────
         self._schedule_telemetry_tick()
 
+        # ── Startup GitHub Update Check (deferred 3 s to not block UI) ──
+        self.after(3000, self._maybe_startup_update_check)
+
         # Load initial batch file if specified via CLI
         if initial_batch_file:
             self.after(200, lambda: self._load_initial_batch_file(initial_batch_file))
@@ -240,7 +243,7 @@ class SmartDownloaderApp(ctk.CTk):
         inner = ctk.CTkFrame(self.status_bar, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=12)
 
-        # Left: Bridge Indicator
+        # Left: Bridge Indicator (clickable → Extension Setup)
         self.bridge_indicator_btn = ctk.CTkButton(
             inner,
             text=" Extension Bridge: Inactive",
@@ -255,12 +258,29 @@ class SmartDownloaderApp(ctk.CTk):
         )
         self.bridge_indicator_btn.pack(side="left")
 
-        # Right: Disk Free Space Telemetry
-        self.storage_lbl = ctk.CTkLabel(
+        # Right: Update indicator (clickable → Settings › Updates tab)
+        self.update_indicator_btn = ctk.CTkButton(
+            inner,
+            text="",
+            font=get_caption_font(),
+            text_color=COLOR_TEXT_MUTED,
+            fg_color="transparent",
+            hover_color="#334155",
+            height=22,
+            command=self._open_settings_dialog,
+        )
+        self.update_indicator_btn.pack(side="right", padx=(0, 8))
+
+        # Right: Disk Free Space Telemetry (clickable → open save folder)
+        self.storage_lbl = ctk.CTkButton(
             inner,
             text="",
             font=get_mono_font(),
             text_color=COLOR_TEXT_MUTED,
+            fg_color="transparent",
+            hover_color="#334155",
+            height=22,
+            command=self._open_save_folder,
         )
         self.storage_lbl.pack(side="right")
 
@@ -305,6 +325,7 @@ class SmartDownloaderApp(ctk.CTk):
         self.bind("<Control-F>", lambda e: self.toolbar.focus_search())
         self.bind("<Control-a>", lambda e: self.queue_view.select_all())
         self.bind("<Control-A>", lambda e: self.queue_view.select_all())
+        self.bind("<Control-comma>", lambda e: self._open_settings_dialog())
         self.bind("<space>", lambda e: self._on_space_pressed())
         self.bind("<Delete>", lambda e: self._on_delete_pressed())
         self.bind("<Escape>", lambda e: self.queue_view.clear_selection())
@@ -460,14 +481,16 @@ class SmartDownloaderApp(ctk.CTk):
         ExtensionSetupModal(self)
 
     def _open_settings_dialog(self) -> None:
-        current_cfg = {
+        # Merge live values into the settings dict before opening
+        current_cfg = dict(self.app_settings)
+        current_cfg.update({
             "dest_dir": self.dest_dir,
             "use_smart_folders": self.use_smart_folders,
             "smart_folder_name": self.smart_folder_name,
             "max_concurrent": self.queue_mgr.max_concurrent,
             "num_connections": self.queue_mgr.num_connections,
             "minimize_to_tray": self.minimize_to_tray_pref,
-        }
+        })
         SettingsModal(
             self,
             current_settings=current_cfg,
@@ -484,15 +507,11 @@ class SmartDownloaderApp(ctk.CTk):
         self.minimize_to_tray_pref = new_cfg.get("minimize_to_tray", True)
         self.toolbar.conc_menu.set(str(self.queue_mgr.max_concurrent))
 
+        # Update working copy of settings for all new keys
+        self.app_settings.update(new_cfg)
+
         # Persist to disk
-        save_settings({
-            "dest_dir": self.dest_dir,
-            "use_smart_folders": self.use_smart_folders,
-            "smart_folder_name": self.smart_folder_name,
-            "max_concurrent": self.queue_mgr.max_concurrent,
-            "num_connections": self.queue_mgr.num_connections,
-            "minimize_to_tray": self.minimize_to_tray_pref,
-        })
+        save_settings(self.app_settings)
 
         self._refresh_all_ui()
 
@@ -609,6 +628,46 @@ class SmartDownloaderApp(ctk.CTk):
         self._update_status_bar_telemetry()
         self.after(1000, self._schedule_telemetry_tick)
 
+    def _maybe_startup_update_check(self) -> None:
+        """Run an update check in the background if auto_check_updates is on and throttle allows."""
+        import threading
+        if not self.app_settings.get("auto_check_updates", True):
+            return
+        last_ts = float(self.app_settings.get("last_update_check_ts", 0.0))
+        from updater import UpdateChecker
+        if not UpdateChecker.should_auto_check(last_ts):
+            return
+
+        def _worker():
+            from updater import UpdateChecker, CURRENT_VERSION
+            import time as _t
+            channel = self.app_settings.get("update_channel", "stable")
+            try:
+                info = UpdateChecker.check_for_updates(CURRENT_VERSION, include_prereleases=(channel == "prerelease"))
+                ts = _t.time()
+                # Persist last-check timestamp
+                self.app_settings["last_update_check_ts"] = ts
+                from storage_manager import save_settings
+                save_settings(self.app_settings)
+                self.after(0, lambda: self._on_startup_update_result(info))
+            except Exception as exc:
+                log.debug(f"Startup update check failed: {exc}")
+
+        threading.Thread(target=_worker, daemon=True, name="update-check").start()
+
+    def _on_startup_update_result(self, info) -> None:
+        """Called on main thread after startup update check completes."""
+        try:
+            if info is not None:
+                self.update_indicator_btn.configure(
+                    text=f"  🆕  v{info.remote_version} available",
+                    text_color="#38bdf8",
+                )
+            else:
+                self.update_indicator_btn.configure(text="")
+        except Exception:
+            pass
+
     def _refresh_all_ui(self) -> None:
         items = list(self.queue_mgr.items)
         self.queue_view.update_items(items)
@@ -658,9 +717,9 @@ class SmartDownloaderApp(ctk.CTk):
             usage = shutil.disk_usage(self.dest_dir)
             free_str = _format_bytes(usage.free)
             dest_short = self.dest_dir if len(self.dest_dir) < 32 else f"...{self.dest_dir[-28:]}"
-            self.storage_lbl.configure(text=f"Save Disk: {free_str} Free · {dest_short}")
+            self.storage_lbl.configure(text=f"💾 {free_str} Free · {dest_short}")
         except Exception:
-            self.storage_lbl.configure(text=f"Save Disk: {self.dest_dir}")
+            self.storage_lbl.configure(text=f"💾 {self.dest_dir}")
 
     # -----------------------------------------------------------------------
     # Chrome Extension Bridge Handlers

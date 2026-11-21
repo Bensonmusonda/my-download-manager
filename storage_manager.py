@@ -143,10 +143,17 @@ def extract_file_extension(name_or_url: str) -> str:
     return Path(filename).suffix.lstrip(".").lower()
 
 
-def get_file_category(name_or_url: str) -> str:
+def get_file_category(
+    name_or_url: str,
+    custom_categories: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Determine the category folder name ('Images', 'Videos', 'Documents', etc.)
     for a given URL or filename based on its extension.
+
+    If custom_categories is supplied (dict mapping category name → list of
+    extensions), those are checked *first* before the built-in defaults,
+    giving user-defined categories priority.
     """
     if not name_or_url:
         return DEFAULT_CATEGORY
@@ -159,6 +166,13 @@ def get_file_category(name_or_url: str) -> str:
     if not ext:
         return DEFAULT_CATEGORY
 
+    # 1. Custom categories take priority
+    if custom_categories:
+        for category, exts in custom_categories.items():
+            if ext in {e.lower().strip() for e in exts}:
+                return category
+
+    # 2. Built-in categories
     for category, extensions in CATEGORY_EXTENSIONS.items():
         if ext in extensions:
             return category
@@ -171,21 +185,23 @@ def resolve_download_folder(
     name_or_url: Optional[str] = None,
     use_smart_folders: bool = True,
     smart_folder_name: str = SMART_FOLDER_NAME,
+    custom_categories: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """
     Determine target save directory for a download.
-    
+
     If use_smart_folders is False or no name_or_url is provided:
         Returns Path(base_dir).
-    
+
     If use_smart_folders is True:
         Returns Path(base_dir) / smart_folder_name / <Category>.
+        Custom categories (if supplied) are resolved before built-ins.
     """
     base = Path(base_dir).resolve()
     if not use_smart_folders or not name_or_url:
         return base
 
-    category = get_file_category(name_or_url)
+    category = get_file_category(name_or_url, custom_categories=custom_categories)
     folder = base / smart_folder_name / category
     return folder
 
@@ -195,14 +211,48 @@ def resolve_download_folder(
 # ---------------------------------------------------------------------------
 
 def get_default_settings() -> Dict[str, Any]:
-    """Default settings dictionary."""
+    """Default settings dictionary — backward-compatible; new keys carry safe defaults."""
     return {
+        # ── Downloads ──────────────────────────────────────────────────────
         "dest_dir": str(get_default_download_dir()),
         "use_smart_folders": True,
         "smart_folder_name": SMART_FOLDER_NAME,
+        "file_conflict_policy": "rename",   # "rename" | "prompt" | "skip" | "overwrite"
+        "auto_start": True,
+        "custom_categories": {},            # {"3D Models": ["stl","obj","fbx"], ...}
+        # ── Connection ────────────────────────────────────────────────────
         "max_concurrent": 2,
         "num_connections": 6,
+        "chunk_threshold_mb": 50,           # min file size for multi-chunk (MB)
+        "speed_limit_dl_mbps": 0,           # 0 = unlimited
+        "speed_limit_ul_kbps": 0,
+        # ── General / System ──────────────────────────────────────────────
         "minimize_to_tray": True,
+        "run_on_startup": False,
+        "close_action": "tray",             # "tray" | "exit" | "ask"
+        "on_complete_action": "notify",     # "nothing" | "notify" | "open_folder" | "open_file" | "chime"
+        # ── BitTorrent ────────────────────────────────────────────────────
+        "torrent_port": 6881,
+        "torrent_random_port": False,
+        "seeding_ratio_limit": 1.0,
+        "dht_enabled": True,
+        "pex_enabled": True,
+        "lsd_enabled": True,
+        "protocol_encryption": "enabled",   # "enabled" | "required" | "disabled"
+        # ── Network / Proxy ───────────────────────────────────────────────
+        "proxy_mode": "none",               # "none" | "system" | "manual"
+        "proxy_host": "",
+        "proxy_port": 8080,
+        "proxy_username": "",
+        "proxy_password": "",
+        "proxy_type": "http",               # "http" | "socks5"
+        "bridge_port": 8992,
+        "max_retries": 5,
+        "retry_backoff": 5,                 # seconds
+        # ── Updates ───────────────────────────────────────────────────────
+        "auto_check_updates": True,
+        "update_channel": "stable",         # "stable" | "prerelease"
+        "last_update_check_ts": 0.0,
     }
 
 
@@ -237,4 +287,68 @@ def save_settings(settings: Dict[str, Any]) -> bool:
         return True
     except Exception as exc:
         log.error(f"Failed to save settings to {CONFIG_FILE}: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Windows Startup Registry Helper
+# ---------------------------------------------------------------------------
+
+_STARTUP_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_STARTUP_VALUE_NAME = "SmartDownloadManager"
+
+
+def set_run_on_startup(enabled: bool) -> bool:
+    """
+    Add or remove the application from the Windows startup registry key
+    HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run.
+
+    Returns True on success, False if the platform is not Windows or on error.
+    """
+    if sys.platform != "win32":
+        log.debug("set_run_on_startup: not on Windows, skipping.")
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            _STARTUP_REG_KEY,
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            if enabled:
+                # Use the executable path; sys.executable when running from source,
+                # or the frozen exe path when compiled with PyInstaller.
+                exe_path = sys.executable if getattr(sys, "frozen", False) else sys.executable
+                winreg.SetValueEx(key, _STARTUP_VALUE_NAME, 0, winreg.REG_SZ, f'"{exe_path}" --minimized')
+                log.info(f"Startup registry entry set: {exe_path}")
+            else:
+                try:
+                    winreg.DeleteValue(key, _STARTUP_VALUE_NAME)
+                    log.info("Startup registry entry removed.")
+                except FileNotFoundError:
+                    pass  # Already absent
+        return True
+    except Exception as exc:
+        log.error(f"Failed to modify startup registry: {exc}")
+        return False
+
+
+def get_run_on_startup() -> bool:
+    """Check whether the startup registry entry currently exists."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            _STARTUP_REG_KEY,
+            0,
+            winreg.KEY_READ,
+        ) as key:
+            winreg.QueryValueEx(key, _STARTUP_VALUE_NAME)
+            return True
+    except FileNotFoundError:
+        return False
+    except Exception:
         return False
